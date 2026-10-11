@@ -18,7 +18,7 @@
  * 白底大卡 + 白底灰框子块 + 圆形刷新钮, 颜色走 HA 主题变量。
  */
 
-const CARD_VERSION = "1.1.5";
+const CARD_VERSION = "1.1.8";
 
 /* 配色对齐官方 App 的三色: 驾驶=绿 / 空调=蓝 / 其它=橙 */
 const COLOR_DRIVER = "#43a047";   // 绿 = 行车(驱动)能耗
@@ -49,6 +49,17 @@ function fmtUpdated(ts) {
 }
 function fmtKwh(v) { return String(Number(Number(v).toFixed(2))); }
 function fmtPct(v) { return Math.round(Number(v) * 10) / 10; }
+
+/* ── IconPark 图标(内联 SVG; 选自 IconPark, 48×48 描边风格) ─────────────
+ * 颜色走 currentColor(跟随文字/主题色), 线宽统一 4/48 → 视觉与 ha-icon 一致。
+ * 用 ipIcon(name, size) 取用; 未收录的语义继续用 ha-icon 的 mdi。 */
+const IP = {"redo":"<path d=\"M36.7279 36.7279C33.4706 39.9853 28.9706 42 24 42C14.0589 42 6 33.9411 6 24C6 14.0589 14.0589 6 24 6C28.9706 6 33.4706 8.01472 36.7279 11.2721C38.3859 12.9301 42 17 42 17\" /><path d=\"M42 8V17H33\" />","histogram":"<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M4 42H44H4Z\" /><path d=\"M4 42H44\" /><rect x=\"8\" y=\"28\" width=\"6\" height=\"14\" /><rect x=\"21\" y=\"18\" width=\"6\" height=\"24\" /><rect x=\"34\" y=\"6\" width=\"6\" height=\"36\" />","ring":"<path d=\"M43.7756 20.9938C42.4735 12.3555 35.6463 5.5277 27.0084 4.22461M20.9757 4.22702C11.3651 5.68478 4 13.9822 4 23.9998C4 34.0212 11.3705 42.321 20.9863 43.7743C21.9692 43.9228 22.9756 43.9998 24 43.9998C25.0209 43.9998 26.024 43.9233 27.0038 43.7758C35.6458 42.4741 42.4762 35.6427 43.7764 27.0003\" /><path d=\"M24 16C19.5817 16 16 19.5817 16 24C16 28.4183 19.5817 32 24 32C28.4183 32 32 28.4183 32 24C32 19.5817 28.4183 16 24 16Z\" />"};
+function ipIcon(name, size) {
+  const s = size || 18;
+  return '<svg class="ip" viewBox="0 0 48 48" width="' + s + '" height="' + s +
+    '" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"' +
+    ' stroke-linejoin="round">' + (IP[name] || "") + "</svg>";
+}
 
 class LeapmotorLastweekCard extends HTMLElement {
   constructor() {
@@ -113,7 +124,7 @@ class LeapmotorLastweekCard extends HTMLElement {
       '<div class="head"><span class="title"></span><span class="sum"></span>' +
       '<span class="spacer"></span>' +
       '<button class="stchip" title="切换样式: 圆环 / 堆叠条"></button>' +
-      '<button class="refresh" title="重新读取"><ha-icon icon="mdi:refresh"></ha-icon></button>' +
+      '<button class="refresh" title="重新读取">' + ipIcon("redo", 16) + '</button>' +
       "</div>" +
       '<div class="lmsg"></div>' +
       '<section class="sec">' +
@@ -194,6 +205,7 @@ class LeapmotorLastweekCard extends HTMLElement {
       }
       .head button.stchip:hover { background: rgba(var(--rgb-primary-color, 3, 169, 244), .12); }
       .head button.stchip ha-icon { width: 16px; height: 16px; --mdc-icon-size: 16px; }
+      .ip { display: inline-block; vertical-align: middle; flex: none; }
       ha-icon { display: inline-flex; width: 16px; height: 16px; --mdc-icon-size: 16px; }
 
       .lmsg { display: none; font-size: 12px; color: var(--secondary-text-color, #6b7280); padding: 2px 2px 0; }
@@ -291,7 +303,7 @@ class LeapmotorLastweekCard extends HTMLElement {
         || /unknown command/i.test(String((err && err.message) || ""));
       if (unknown) {
         // "命令没注册"是版本问题, 不是错误 —— 用普通提示色, 不吓用户(与行程/里程卡同一约定)
-        this._hint = "需要更新版集成(上周能耗命令未注册)";
+        this._hint = "";   // 命令未注册(旧版集成): 不提示, 安静留空
         this._err = "";
       } else {
         this._hint = "";
@@ -315,7 +327,7 @@ class LeapmotorLastweekCard extends HTMLElement {
     const code = String((err && err.code) || "");
     const msg = String((err && err.message) || err || "");
     if (code === "unknown_command" || code === "no_callws" || /unknown command/i.test(msg)) {
-      return "需要更新版集成(上周能耗命令未注册)";
+      return "";   // 同上: 不再提示"需要更新版集成"
     }
     if (code === "not_found") return "集成还没就绪(等车机上报数据后点刷新)";
     if (code === "unauthorized" || /admin|管理员/i.test(msg)) return "需要管理员权限";
@@ -388,8 +400,7 @@ class LeapmotorLastweekCard extends HTMLElement {
     this._secEl.className = "sec " + (this._style === "bar" ? "mode-bar" : "mode-donut");
     if (this._stBtn) {
       const donut = this._style !== "bar";
-      this._stBtn.innerHTML = '<ha-icon icon="' + (donut ? "mdi:chart-donut" : "mdi:chart-bar") +
-        '"></ha-icon>';
+      this._stBtn.innerHTML = ipIcon(donut ? "ring" : "histogram", 18);
       this._stBtn.title = donut ? "当前: 圆环(点一下切到条形)" : "当前: 条形(点一下切到圆环)";
     }
     // 合计 + 更新时间

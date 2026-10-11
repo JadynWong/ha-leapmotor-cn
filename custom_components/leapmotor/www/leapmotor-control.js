@@ -84,7 +84,7 @@
  * 用户不需要把它拷到 www/ 或手配资源。
  */
 
-const CARD_VERSION = "1.8.7";
+const CARD_VERSION = "1.9.6";
 
 /* 区块顺序(show 配置按这个顺序渲染; 缺键的区块自动隐藏)
  * 注意: 这里没有 tires —— 胎压在 v3 并进了车模区, 但 show 里写 "tires" 仍然被接受(忽略即可)。
@@ -180,10 +180,6 @@ const HVAC_LABEL = {
 /* 空调模式 → 图标(模式按钮只画图标, 中文放在 title 上)。
  * 零跑的空调实体只有 off/cool/heat/fan_only 四种, 三个图标刚好覆盖;
  * auto/dry 这类(个别后端会多给)也各配一个, 免得出现没有图形的地方。 */
-const HVAC_ICON = {
-  cool: "mdi:snowflake", heat: "mdi:fire", fan_only: "mdi:fan-auto",
-  auto: "mdi:fan-auto", dry: "mdi:water", heat_cool: "mdi:snowflake-alert",
-};
 
 /* 充电状态枚举 → 中文 */
 const CHARGE_LABEL = { charging: "充电中", plugged: "已插枪", unplugged: "未插枪" };
@@ -195,6 +191,17 @@ const CHARGE_TIP = {
   plugged: "已插枪但未在充电(可能是预约充电 / 已充满 / 充电桩未供电)",
   unplugged: "充电枪未插",
 };
+
+/* ── IconPark 图标(内联 SVG; 选自 IconPark, 48×48 描边风格) ─────────────
+ * 颜色走 currentColor(跟随文字/主题色), 线宽统一 4/48 → 视觉与 ha-icon 一致。
+ * 用 ipIcon(name, size) 取用; 未收录的语义继续用 ha-icon 的 mdi。 */
+const IP = {"redo":"<path d=\"M36.7279 36.7279C33.4706 39.9853 28.9706 42 24 42C14.0589 42 6 33.9411 6 24C6 14.0589 14.0589 6 24 6C28.9706 6 33.4706 8.01472 36.7279 11.2721C38.3859 12.9301 42 17 42 17\" /><path d=\"M42 8V17H33\" />","snow":"<path d=\"M9.45455 30.9942C6.14242 28.461 4 24.4278 4 19.8851C4 12.2166 10.1052 6 17.6364 6C23.9334 6 29.2336 10.3462 30.8015 16.2533C32.0353 15.6159 33.431 15.2567 34.9091 15.2567C39.9299 15.2567 44 19.4011 44 24.5135C44 28.3094 41.7562 31.5716 38.5455 33\" /><path d=\"M18 23V29\" /><path d=\"M15 26H21\" /><path d=\"M31 26V32\" /><path d=\"M28 29H34\" /><path d=\"M24 36V42\" /><path d=\"M21 39H27\" />","snowflake":"<path d=\"M24 4V44\" /><path d=\"M6.72461 14L41.3656 34\" /><path d=\"M6.71923 33.9773L41.2814 14.0228\" /><path d=\"M12 10L15 19L6 21\" /><path d=\"M6 27L15 29L12 38\" /><path d=\"M36 10L33 19L42 21\" /><path d=\"M42 27L33 29L36 38\" /><path d=\"M18 7L24 13L30 7\" /><path d=\"M18 41L24 35L30 41\" />","fire":"<path d=\"M24 44C32.2347 44 38.9998 37.4742 38.9998 29.0981C38.9998 27.0418 38.8953 24.8375 37.7555 21.4116C36.6157 17.9858 36.3861 17.5436 35.1809 15.4279C34.666 19.7454 31.911 21.5448 31.2111 22.0826C31.2111 21.5231 29.5445 15.3359 27.0176 11.6339C24.537 8 21.1634 5.61592 19.1853 4C19.1853 7.06977 18.3219 11.6339 17.0854 13.9594C15.8489 16.2849 15.6167 16.3696 14.0722 18.1002C12.5278 19.8308 11.8189 20.3653 10.5274 22.4651C9.23596 24.565 9 27.3618 9 29.4181C9 37.7942 15.7653 44 24 44Z\" />","sun":"<path d=\"M24 37C31.1797 37 37 31.1797 37 24C37 16.8203 31.1797 11 24 11C16.8203 11 11 16.8203 11 24C11 31.1797 16.8203 37 24 37Z\" /><path d=\"M24 6C25.3807 6 26.5 4.88071 26.5 3.5C26.5 2.11929 25.3807 1 24 1C22.6193 1 21.5 2.11929 21.5 3.5C21.5 4.88071 22.6193 6 24 6Z\" fill=\"currentColor\"/><path d=\"M38.5 12C39.8807 12 41 10.8807 41 9.5C41 8.11929 39.8807 7 38.5 7C37.1193 7 36 8.11929 36 9.5C36 10.8807 37.1193 12 38.5 12Z\" fill=\"currentColor\"/><path d=\"M44.5 26.5C45.8807 26.5 47 25.3807 47 24C47 22.6193 45.8807 21.5 44.5 21.5C43.1193 21.5 42 22.6193 42 24C42 25.3807 43.1193 26.5 44.5 26.5Z\" fill=\"currentColor\"/><path d=\"M38.5 41C39.8807 41 41 39.8807 41 38.5C41 37.1193 39.8807 36 38.5 36C37.1193 36 36 37.1193 36 38.5C36 39.8807 37.1193 41 38.5 41Z\" fill=\"currentColor\"/><path d=\"M24 47C25.3807 47 26.5 45.8807 26.5 44.5C26.5 43.1193 25.3807 42 24 42C22.6193 42 21.5 43.1193 21.5 44.5C21.5 45.8807 22.6193 47 24 47Z\" fill=\"currentColor\"/><path d=\"M9.5 41C10.8807 41 12 39.8807 12 38.5C12 37.1193 10.8807 36 9.5 36C8.11929 36 7 37.1193 7 38.5C7 39.8807 8.11929 41 9.5 41Z\" fill=\"currentColor\"/><path d=\"M3.5 26.5C4.88071 26.5 6 25.3807 6 24C6 22.6193 4.88071 21.5 3.5 21.5C2.11929 21.5 1 22.6193 1 24C1 25.3807 2.11929 26.5 3.5 26.5Z\" fill=\"currentColor\"/><path d=\"M9.5 12C10.8807 12 12 10.8807 12 9.5C12 8.11929 10.8807 7 9.5 7C8.11929 7 7 8.11929 7 9.5C7 10.8807 8.11929 12 9.5 12Z\" fill=\"currentColor\"/>","wind":"<path d=\"M12 17H10C7.79086 17 6 18.7909 6 21V21C6 23.2091 7.79086 25 10 25H12\" /><path d=\"M22 33H19C16.7909 33 15 34.7909 15 37V37C15 39.2091 16.7909 41 19 41H22\" /><path d=\"M27 7H24C21.7909 7 20 8.79086 20 11V11C20 13.2091 21.7909 15 24 15H27\" /><path d=\"M24 15H40\" /><path d=\"M12 25H42\" /><path d=\"M22 33H34\" />","whirlwind":"<path d=\"M24 29C26.7614 29 29 26.7614 29 24C29 21.2386 26.7614 19 24 19C21.2386 19 19 21.2386 19 24C19 26.7614 21.2386 29 24 29Z\" /><path d=\"M23.5 44C16.5964 44 11 38.4036 11 31.5C11 24.5964 16.5964 19 23.5 19\" /><path d=\"M44 23.5C44 30.4036 38.4036 36 31.5 36C24.5964 36 19 30.4036 19 23.5\" /><path d=\"M23.5 29C30.4036 29 36 23.4036 36 16.5C36 9.59644 30.4036 4 23.5 4\" /><path d=\"M29 23.5C29 16.5964 23.4036 11 16.5 11C9.59644 11 4 16.5964 4 23.5\" />","settingConfig":"<path d=\"M41.5 10H35.5\" /><path d=\"M27.5 6V14\" /><path d=\"M27.5 10L5.5 10\" /><path d=\"M13.5 24H5.5\" /><path d=\"M21.5 20V28\" /><path d=\"M43.5 24H21.5\" /><path d=\"M41.5 38H35.5\" /><path d=\"M27.5 34V42\" /><path d=\"M27.5 38H5.5\" />"};
+function ipIcon(name, size) {
+  const s = size || 18;
+  return '<svg class="ip" viewBox="0 0 48 48" width="' + s + '" height="' + s +
+    '" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"' +
+    ' stroke-linejoin="round">' + (IP[name] || "") + "</svg>";
+}
 
 /* 座舱俯视底图(内联 SVG): 通用布局, 头朝上。轮廓/座椅/方向盘的配色走卡片里的 CSS 变量
  * (座椅用 --secondary-background-color 等) —— 因为要**内联**进 shadow DOM, 变量才能被继承并
@@ -400,13 +407,15 @@ this._index = {};            // translation_key → entity_id
     // v2 的界面状态
     this._collapsed = {};        // 区块名 → true(localStorage 里持久化)
     this._foldLoaded = false;    // 是否已经按设备 id 读过 localStorage
-    this._open = { climate: true, window: false, photo: false, tires: false };  // 页内展开态
+    this._open = { climate: true, window: false, preset: false, photo: false, tires: false };  // 页内展开态
     this._winOutside = null;      // 车窗气泡打开时挂的 document 点击监听(点外部关气泡)
     this._locBgSrc = "";         // 位置卡背景图: 当前在验证的地址
     this._locBgOk = "";          // 位置卡背景图: 验证结果(ok / 其它=失败)
     // 车模图(按车型): 与 _locBg 同一套"先探针再上屏"的缓存; 探不过就回退自绘 SVG
     this._carImgSrc = "";        // 当前在验证的地址
     this._carImgOk = "";         // 验证结果(ok / bad)
+    // 充电上限: 命令刚发出、实体状态还没更新时, 用本地值顶住滑杆(免得"弹回"旧位置)
+    this._clPending = null;
     this._carImgRetryAt = 0;     // 外观图失败后按退避间隔重试
     this._carImgApiFailedSrc = ""; // 记录失败的外观图地址, 到时重试
     this._narrow = false;        // 卡片宽度 < 420px(两卡改上下堆叠)
@@ -964,6 +973,7 @@ this._index = {};            // translation_key → entity_id
     this._renderPhoto();
     this._renderToast();
     if (this._open.window) this._placeWin();
+    if (this._open.preset) this._placePreset();
   }
 
   /**
@@ -972,17 +982,22 @@ this._index = {};            // translation_key → entity_id
    * 竖向: 贴在圆钮下沿 +8px(不遮圆钮那一行); 横向: 先按圆钮居中, 再夹回卡片内,
    * 窄屏时箭头单独跟到圆钮中心, 保证不会飘到气泡外面去。
    */
-  _placeWin() {
+  _placeWin() { this._placePop(".actWin", ".winPop", ".p-actions"); }
+
+  _placePreset() { this._placePop(".actPreset", ".presetPop", ".p-climate"); }
+
+  /** 把气泡贴到它的圆钮下方并夹回面板内(窗/预设共用)。 */
+  _placePop(wrapSel, popSel, boxSel) {
     const sr = this.shadowRoot;
     if (!sr) return;
-    const pop = sr.querySelector(".winPop");
-    const wrap = sr.querySelector(".actWin");
-    const btn = wrap && wrap.querySelector(".circ");
+    const pop = sr.querySelector(popSel);
+    const wrap = sr.querySelector(wrapSel);
+    const btn = wrap && wrap.querySelector("button");
     if (!pop || !wrap || !btn) return;
     const wr = wrap.getBoundingClientRect();
     const br = btn.getBoundingClientRect();
     // 气泡比 .actWin 宽得多, 先按卡片内可用宽度封顶, 夹取区间才一定有解
-    const box = (sr.querySelector(".p-actions") || wrap).getBoundingClientRect();
+    const box = (sr.querySelector(boxSel) || wrap).getBoundingClientRect();
     const pad = 8;
     pop.style.maxWidth = Math.max(box.width - pad * 2, 80) + "px";
     const w = pop.offsetWidth;
@@ -1095,7 +1110,7 @@ this._index = {};            // translation_key → entity_id
     if (refreshId) {
       h += '<button class="toolBtn" data-act="press" data-entity="' + esc(refreshId) + '"' +
         ' title="刷新车况"' + this._dis(rBusy) + ">" +
-        (rBusy ? "…" : '<ha-icon class="ico" icon="mdi:refresh"></ha-icon>') + "</button>";
+        (rBusy ? "…" : ipIcon("redo", 16)) + "</button>";
     }
     h += "</div></div>";
 
@@ -1344,7 +1359,8 @@ this._index = {};            // translation_key → entity_id
       const busy = !!this._busy["lock"];
       const label = locked ? "解锁" : "上锁";
       const tip = driving ? "行驶中已禁用" : locked ? "解锁(会先弹确认)" : "上锁(会先弹确认)";
-      h += '<div class="act"><button class="circ' + (locked ? " on" : "") + '" data-act="lockround"' +
+      // 颜色语义: **上锁 = 灰色**(常态, 没什么要注意的); 未上锁才亮起提示
+      h += '<div class="act"><button class="circ' + (locked ? "" : " on") + '" data-act="lockround"' +
         ' title="' + esc(tip) + '"' + this._dis(driving || busy) + ">" +
         '<ha-icon class="ico lg" icon="' + (locked ? "mdi:car-door-lock" : "mdi:car-door-lock-open") + '"></ha-icon>' +
         '</button><span class="actL">' + esc(label) + "</span></div>";
@@ -1438,12 +1454,21 @@ this._index = {};            // translation_key → entity_id
       // ± 只在**开着**时给 —— 关着点加减会把车端空调打开, 但实体状态仍是 off,
       // 风扇钮不会亮也不会转, 界面与实际相反。
       h += '<div class="acBody"><div class="tempBox">';
-      if (on) {
+      const pNow2 = String(this._attr("ac", "preset_mode") || "");
+      const tempLocked = pNow2 === "极速降温" || pNow2 === "极速升温";
+      if (on && !tempLocked) {
         h += '<button class="step" data-act="temp" data-delta="-' + step + '" title="降低 ' + step + ' 度"' +
           this._dis(!ready || busy) + ">−</button>";
       }
-      h += '<span class="tval">' + (Number.isFinite(t) ? fmtNum(t, 1) : "—") + "<i>℃</i></span>";
-      if (on) {
+      // 快捷预设自带固定温度: 极速降温=低(LO)/极速升温=高(HI) —— 与 App 的显示一致;
+      // 预设生效期间不给 ±(改温度会与预设打架)。
+      const pNow = String(this._attr("ac", "preset_mode") || "");
+      const loHi = pNow === "极速降温" ? "LO" : pNow === "极速升温" ? "HI" : "";
+      h += loHi
+        ? '<span class="tval" title="' + esc(pNow + "：设定 " + (loHi === "LO" ? 18 : 32) + "℃") +
+          '">' + loHi + "</span>"
+        : '<span class="tval">' + (Number.isFinite(t) ? fmtNum(t, 1) : "—") + "<i>℃</i></span>";
+      if (on && !loHi) {
         h += '<button class="step" data-act="temp" data-delta="' + step + '" title="升高 ' + step + ' 度"' +
           this._dis(!ready || busy) + ">＋</button>";
       }
@@ -1453,20 +1478,43 @@ this._index = {};            // translation_key → entity_id
     this._setPanel("climate", h);
   }
 
-  /** 空调模式: 一排圆形图标按钮(制冷 ❄ / 制热 🔥 / 送风 🌀), 当前模式主题色填充。
-   *  「关」不列在这里 —— 风扇圆钮本身就是开关, 再放一个「关」是重复的。 */
+  /** 空调快捷预设(与集成 climate 实体的 preset 名称一致): 极速降温 / 极速升温 / 快速除味 / 风挡除霜。 */
+  _acPresets() {
+    return [
+      { val: "极速降温", ip: "snow" },
+      { val: "极速升温", ip: "fire" },
+      { val: "快速除味", ip: "whirlwind" },
+      { val: "风挡除霜", mdi: "car-defrost-front" },   // 语义最贴切的仍是这个 mdi, 保留
+    ];
+  }
+
+  /** 空调控制面(与手机 App 一致): **开关 + 温度 + 四个预设**。
+   *  这里只渲染"预设"入口圆钮; 开关是标题行的风扇钮, 温度是上面的 ± 行。
+   *  (App 里没有"制热/送风"可选 —— 硬发那两条指令车端不回报状态, 界面就会骗人, 故不提供。) */
   _hvacModes(a, mode) {
-    const modes = (Array.isArray(a.hvac_modes) && a.hvac_modes.length
-      ? a.hvac_modes : ["off", "cool", "heat", "fan_only"]).filter((m) => m !== "off");
-    const busy = !!this._busy["hvac"];
-    let h = '<div class="modes">';
-    for (const m of modes) {
-      h += '<button class="chip mi' + (m === mode ? " on" : "") + '" data-act="hvac" data-val="' + esc(m) + '"' +
-        ' title="' + esc(HVAC_LABEL[m] || m) + '" aria-label="' + esc(HVAC_LABEL[m] || m) + '"' +
-        this._dis(!this._ready("ac") || busy) + ">" +
-        '<ha-icon class="ico lg" icon="' + (HVAC_ICON[m] || "mdi:fan") + '"></ha-icon></button>';
+    if (!this._entId("ac")) return "";
+    // 这个钮只负责"弹出四个预设气泡", 不表示任何开关状态(不做变色);
+    // 当前生效的预设在气泡里点亮。
+    const pNow = String(this._attr("ac", "preset_mode") || "");
+    let h = '<div class="modes"><div class="actPreset">' +
+      '<button class="chip mi" data-act="presetmenu"' +
+      ' aria-label="空调预设" title="空调预设：极速降温 / 极速升温 / 快速除味 / 风挡除霜"' +
+      this._dis(!this._ready("ac")) + ">" +
+      ipIcon("settingConfig", 20) + "</button>";
+    if (this._open.preset) {
+      // 四个预设互斥: 同一时刻最多一个生效(车端信号 + 本地记忆, 见 climate 实体的 preset_mode);
+      // 生效的那个实心主题色点亮, 空调关闭/车端报别的预设时全部熄灭。
+      h += '<div class="presetPop" role="menu">';
+      for (const p of this._acPresets()) {
+        h += '<button class="presetOpt' + (pNow === p.val ? " on" : "") +
+          '" data-act="preset" data-val="' + esc(p.val) + '"' +
+          ' title="' + esc(p.val) + '">' +
+          (p.ip ? ipIcon(p.ip, 18) : '<ha-icon class="ico" icon="mdi:' + p.mdi + '"></ha-icon>') +
+          "<span>" + esc(p.val) + "</span></button>";
+      }
+      h += "</div>";
     }
-    return h + "</div>";
+    return h + "</div></div>";
   }
 
   /** 位置卡背景图(驻车照片)。
@@ -1515,7 +1563,11 @@ this._index = {};            // translation_key → entity_id
     const lat = Number(a.latitude);
     const lon = Number(a.longitude);
     const zone = zoneLabel((this._hass && this._hass.states) || {}, st ? st.state : "");
-    const rel = relTime((st && st.last_updated) || this._val("state_updated"));
+    // 时间显示"这张照片是什么时候拿到的" —— 用驻车照片的 upload_time(车端拍照/上传时刻)。
+    // 不能用 tracker.last_updated: 每轮轮询都会刷新它, 于是永远显示"刚刚";
+    // 照片没换时 upload_time 不变, 时间也就稳定不动。
+    const photoAt = this._attr("parking_url", "upload_time");
+    const rel = relTime(photoAt) || relTime(this._val("state_updated"));
     const hasFix = Number.isFinite(lat) && Number.isFinite(lon);
     const bg = this._locBg();
 
@@ -1625,14 +1677,29 @@ this._index = {};            // translation_key → entity_id
       const hi = Number.isFinite(Number(a.max)) ? Number(a.max) : 100;
       const sAttr = Number(a.step);
       const step = Number.isFinite(sAttr) && sAttr > 0 ? sAttr : 5;
-      const val = Number.isFinite(v) ? clampNum(v, lo, hi) : lo;
+      let val = Number.isFinite(v) ? clampNum(v, lo, hi) : lo;
+      // 乐观值: 改完上限后车端写库有延迟, 实体状态还没更新 —— 期间滑杆停在本地新值,
+      // 一旦实体报出同一个值(或超过窗口)就交回实体(见 _onChange 的 charge_limit 分支)。
+      const pend = this._clPending;
+      if (pend) {
+        if (pend.id !== clId || Date.now() > pend.until) this._clPending = null;
+        else if (Number.isFinite(v) && Math.abs(v - pend.value) < 0.001) this._clPending = null;
+        else val = clampNum(pend.value, lo, hi);
+      }
       const busy = !!this._busy["cl:" + clId];
+      // 健康充电开启时, 云端不接受充电上限修改 → 直接禁用(并说清原因)
+      const healthyOn = this._val("healthy_charge") === "on";
+      const clTip = healthyOn ? "健康充电开启时不生效（先关闭健康充电）" : "充电上限";
       h += '<div class="cRow"><ha-icon class="cIC" icon="mdi:battery-charging-80"></ha-icon>' +
         '<span class="cL">充电上限</span><span class="cC">' +
         '<input class="rng" type="range" data-act="charge_limit" data-entity="' + esc(clId) +
         '" min="' + lo + '" max="' + hi + '" step="' + step + '" value="' + val + '"' +
-        this._dis(busy) + ">" +
+        ' title="' + esc(clTip) + '"' +
+        this._dis(busy || healthyOn) + ">" +
         '<span class="cV">' + fmtNum(val, 0, "%") + "</span></span></div>";
+      if (healthyOn) {
+        h += '<div class="cNote">健康充电开启时不生效，请先关闭健康充电</div>';
+      }
     }
     // ③ 预约充电开关
     if (this._entId("charge_book")) {
@@ -2030,6 +2097,20 @@ this._index = {};            // translation_key → entity_id
       this._showWin(!this._open.window);
       return;
     }
+    if (act === "presetmenu") {
+      this._showPreset(!this._open.preset);
+      return;
+    }
+    if (act === "preset") {
+      const id = this._entId("ac");
+      const val = el.dataset.val || "";
+      this._showPreset(false);                 // 选完即收气泡
+      if (id && val) {
+        this._call("climate", "set_preset_mode",
+          { entity_id: id, preset_mode: val }, "preset");
+      }
+      return;
+    }
     if (act === "winstep") {
       const id = el.dataset.entity;
       this._showWin(false);              // 选完一档自动收起气泡
@@ -2089,6 +2170,8 @@ this._index = {};            // translation_key → entity_id
       const v = Number(el.value);
       const cur = this._num("charge_limit");
       if (Number.isFinite(v) && (cur == null || Math.abs(cur - v) > 0.001)) {
+        // 记下本地期望值, 给紧接着的重绘用(窗口 90s; 实体报出同值即释放)
+        this._clPending = { id, value: v, until: Date.now() + 90000 };
         this._call("number", "set_value", { entity_id: id, value: v }, "cl:" + id);
       }
       return;
@@ -2137,8 +2220,32 @@ this._index = {};            // translation_key → entity_id
   }
 
   /** 车窗四档气泡: 开的时候在 document 上挂一个捕获阶段的点击监听, 点任何非气泡处就收起 */
+  /** 空调预设气泡: 与车窗气泡同一套"点外部收起"的做法。 */
+  _showPreset(on) {
+    if (this._open.preset === on) return;
+    this._open.preset = on;
+    if (on) {
+      this._showWin(false);                    // 两个气泡互斥
+      const self = this;
+      this._presetOutside = function (ev) {
+        const path = (ev.composedPath && ev.composedPath()) || [];
+        for (const n of path) {
+          if (!n || !n.dataset) continue;
+          if (n.dataset.act === "presetmenu" || n.dataset.act === "preset") return;
+        }
+        self._showPreset(false);
+      };
+      document.addEventListener("click", this._presetOutside, true);
+    } else if (this._presetOutside) {
+      document.removeEventListener("click", this._presetOutside, true);
+      this._presetOutside = null;
+    }
+    this._render();
+  }
+
   _showWin(on) {
     if (this._open.window === on) return;
+    if (on && this._open.preset) this._showPreset(false);   // 两个气泡互斥
     this._open.window = on;
     if (on) {
       const self = this;
@@ -2421,6 +2528,31 @@ this._index = {};            // translation_key → entity_id
            具体的 left/top/箭头位置由 _placeWin() 按「车窗」圆钮实测后写回 inline style,
            下面的值只是 JS 跑之前的兜底(等于旧版: 相对整行居中) */
         .actWin { position: relative; }
+        .actPreset { position: relative; }
+        /* 空调预设气泡: 纵向四条(与车窗气泡同款观感, 只是竖排) */
+        .presetPop {
+          position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+          box-sizing: border-box; z-index: 7; display: flex; flex-direction: column; gap: 4px;
+          padding: 6px; min-width: 132px; border-radius: 14px;
+          background: var(--ha-card-background, var(--card-background-color, #fff));
+          border: 1px solid var(--divider-color, rgba(0, 0, 0, .09));
+          box-shadow: 0 4px 14px rgba(0,0,0,.22);
+        }
+        .presetOpt {
+          display: flex; align-items: center; gap: 8px; width: 100%;
+          padding: 8px 10px; border-radius: 10px; cursor: pointer;
+          font: inherit; font-size: 13px; text-align: left;
+          color: var(--primary-text-color, #212121);
+          border: 1px solid transparent; background: transparent; box-shadow: none;
+          white-space: nowrap;
+        }
+        .presetOpt:hover { background: rgba(var(--rgb-primary-color, 3, 169, 244), .12); }
+        .presetOpt.on {
+          background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff);
+          border-color: transparent; font-weight: 600;
+        }
+        .presetOpt.on:hover { background: var(--primary-color, #03a9f4); filter: brightness(1.08); }
+        .presetOpt:active { transform: scale(.97); }
         .winPop {
           position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
           box-sizing: border-box; z-index: 6; display: flex; gap: 6px; padding: 8px;
@@ -2635,6 +2767,8 @@ this._index = {};            // translation_key → entity_id
         }
         .cabBtn:active { opacity: 1; }
         .cabBtn:active { transform: scale(.94); }
+        /* IconPark 内联图标: 跟随 currentColor 与字号, 与 ha-icon 同尺寸观感 */
+        .ip { display: inline-block; vertical-align: middle; flex: none; }
         /* 状态用**颜色**表示(不再有文字): 加热类=红, 通风=蓝且图标转动 */
         .cabBtn.heat.on, .cabBtn.sw.on { color: #e53935; }
         .cabBtn.vent.on { color: #29b6f6; }
@@ -2674,6 +2808,8 @@ this._index = {};            // translation_key → entity_id
         .togchip.on { background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff); border-color: transparent; }
         .togchip.on i { opacity: .8; }
         .rng { flex: 1; min-width: 120px; accent-color: var(--primary-color, #03a9f4); }
+        .rng:disabled { opacity: .45; cursor: not-allowed; }
+        .cNote { font-size: 11px; opacity: .62; margin: 2px 0 0 30px; }
         .tinput {
           font: inherit; font-size: 13px; color: inherit; padding: 6px 8px;
           border-radius: 14px;
@@ -2773,6 +2909,10 @@ this._index = {};            // translation_key → entity_id
     if (this._winOutside) {
       document.removeEventListener("click", this._winOutside, true);
       this._winOutside = null;
+    }
+    if (this._presetOutside) {
+      document.removeEventListener("click", this._presetOutside, true);
+      this._presetOutside = null;
     }
     if (this._ro) {
       this._ro.disconnect();

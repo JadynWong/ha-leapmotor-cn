@@ -113,7 +113,7 @@ const TILE_SOURCES = {
 /* 高德连不上时回落到 OSM(海外用户/高德故障时至少还能看图) */
 const TILE_FALLBACK = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
-const CARD_VERSION = "1.6.6";
+const CARD_VERSION = "1.6.9";
 
 /** 经纬度 → 世界像素坐标(标准 Web 墨卡托, 与高德/OSM 一致)。 */
 function project(lat, lon, zoom) {
@@ -146,6 +146,16 @@ function pickTracker(hass) {
 
 function clamp(v, lo, hi) {
   return Math.min(hi, Math.max(lo, v));
+}
+
+/* ── IconPark 图标(内联 SVG; 48×48 描边风格) ─────────────────────────
+ * 颜色走 currentColor(跟随文字/主题色)。用 ipIcon(name, size) 取用。 */
+const IP = {"aiming":"<circle cx=\"24\" cy=\"24\" r=\"20\" /><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M24 37V44V37Z\" /><path d=\"M24 37V44\" /><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M36 24H44H36Z\" /><path d=\"M36 24H44\" /><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M4 24H11H4Z\" /><path d=\"M4 24H11\" /><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M24 11V4V11Z\" /><path d=\"M24 11V4\" />"};
+function ipIcon(name, size) {
+  const s = size || 18;
+  return '<svg class="ip" viewBox="0 0 48 48" width="' + s + '" height="' + s +
+    '" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"' +
+    ' stroke-linejoin="round">' + (IP[name] || "") + "</svg>";
 }
 
 class LeapmotorMapCard extends HTMLElement {
@@ -690,7 +700,7 @@ class LeapmotorMapCard extends HTMLElement {
         <div class="btns">
           <button data-a="in" title="放大">＋</button>
           <button data-a="out" title="缩小">－</button>
-          <button data-a="follow" title="跟随车辆">◎</button>
+          <button data-a="follow" title="跟随车辆">${ipIcon("aiming", 18)}</button>
           <button data-a="style" class="style" title="底图: 点一下切换"><ha-icon icon="mdi:theme-light-dark"></ha-icon></button>
           <button data-a="zone" title="建一个区域(围栏)">＋</button>
           <button data-a="zones" title="管理区域(定位/删除)">☰</button>
@@ -814,6 +824,25 @@ class LeapmotorMapCard extends HTMLElement {
       }
       this._dragging = false;
     };
+    // ── 双指捏合缩放(手机/平板) ──
+    let pinch = null;
+    const dist2 = (ts) => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
+    this._wrap.addEventListener("touchstart", (ev) => {
+      if (ev.touches.length !== 2) return;
+      ev.preventDefault();
+      start = null;                       // 捏合期间不拖地图
+      pinch = { d: dist2(ev.touches) || 1, zoom: this._zoom,
+                cx: (ev.touches[0].clientX + ev.touches[1].clientX) / 2,
+                cy: (ev.touches[0].clientY + ev.touches[1].clientY) / 2 };
+    }, { passive: false });
+    this._wrap.addEventListener("touchmove", (ev) => {
+      if (!pinch || ev.touches.length !== 2) return;
+      ev.preventDefault();
+      const want = clamp(Math.round(pinch.zoom + Math.log2(dist2(ev.touches) / pinch.d)), 3, 18);
+      if (want !== this._zoom) { this._zoomAt(pinch.cx, pinch.cy, want - this._zoom); this._setFollow(false); }
+    }, { passive: false });
+    this._wrap.addEventListener("touchend", () => { pinch = null; });
+    this._wrap.addEventListener("touchcancel", () => { pinch = null; });
     this._wrap.addEventListener("pointerup", end);
     this._wrap.addEventListener("pointercancel", end);
     this._wrap.addEventListener("dblclick", (ev) => {
@@ -869,6 +898,7 @@ class LeapmotorMapCard extends HTMLElement {
         this._center = [this._lat, this._lon];
         this._renderTiles();
         this._renderMarker();
+        this._renderZones();      // 区域圆圈也要当场跟着走, 否则要等下一帧才归位
       }
     } else if (action === "style") {
       this._cycleMapStyle();

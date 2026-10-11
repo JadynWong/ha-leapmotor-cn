@@ -569,16 +569,20 @@ def seat_rows(signals: dict, abilities=()) -> dict:
 
 
 def is_reev(signals: dict) -> bool:
-    """是不是增程车: 只要车端报了燃油量/燃油续航相关信号就是。
+    """是不是增程车: 只看**燃油专属**信号, 且**值必须为正**。
 
-    依据: EU mate 用 `3235 is not None` 判定, 且"值存在才建实体"最稳(不依赖能力位,
-    各车型的能力码并不统一)。纯电车这些信号一律缺失。
+    依据: EU mate 用 `3235 is not None` 判定。但实测发现**纯电车也会上报这些键**
+    (C11 纯电反馈: 没有燃油却显示了燃油信息) —— 常见是 `fuel_level=0`, 或只报了
+    `range_total_*`(总续航不是燃油专属, 纯电也有总续航, 所以**不能**用作判据)。
+
+    因此: 只认 `fuel_level` / `fuel_ml` / `range_fuel_*`, 且要求 > 0。
+    代价: 增程车油箱全空(油量与燃油续航都为 0)时会判成纯电 —— 少见, 且加油后即恢复。
     """
     if not signals:
         return False
-    for k in ("fuel_level", "fuel_ml", "range_fuel_wltc", "range_fuel_cltc",
-              "range_total_wltc", "range_total_cltc"):
-        if signals.get(k) is not None:
+    for k in ("fuel_level", "fuel_ml", "range_fuel_wltc", "range_fuel_cltc"):
+        v = _num(signals.get(k))
+        if v is not None and v > 0:
             return True
     return False
 
@@ -728,7 +732,7 @@ SIGNAL_IDS: dict[str, str] = {
     "1696": "window_state_4",
     "1816": "steering_wheel_heating",          # 方向盘加热开关位(0/1) —— 别用 1624 判断开关!
     "1943": "raw_1943",
-    "1945": "raw_1945",
+    "1945": "windshield_defrost",           # 风挡除霜(EU 表 windshieldDefrost)
     "3366": "raw_3366",
     "3736": "raw_3736",
     "6469": "raw_6469",
@@ -748,7 +752,7 @@ SIGNAL_IDS: dict[str, str] = {
 _ON_FLAGS = ("climate_on", "battery_heating", "ready", "trunk_open", "parking_brake",
              "healthy_charging", "sentry_mode", "charge_plug", "dc_cable_connected",
              "mirror_heat_left", "mirror_heat_right", "rear_window_heat", "fast_cooling",
-             "fast_heating")
+             "fast_heating", "windshield_defrost")
 
 
 def _num(value: Any) -> float | None:
@@ -841,13 +845,18 @@ class CarState:
         纯电车取表显(2188);增程车取"油电总续航"(3261/3258, 按工况选) —— 两者不是同一个
         信号, 但都是 App 认为该显示给用户的那个数。见 `reev_ranges()`。
         """
+        r = reev_ranges(self.signals)              # 按工况取"总续航 / 纯电续航"
         if is_reev(self.signals):
-            r = reev_ranges(self.signals)          # 增程: 按工况取"油电总续航"
+            # 增程: 总续航才是 App 主页那个数(表显在增程上通常只是"纯电续航")
             for v in (r["total_km"], r["ev_km"]):
                 if v is not None:
                     return v
-        for k in ("range_live", "range_ev_wltc", "range_ev_cltc"):
-            v = self.signals.get(k)
+        # 纯电: 先表显; 再纯电续航; 最后才用总续航兜底
+        # (某些车只报 3258/3261 —— 总续航不是"增程专属", 纯电用它兜底是对的)
+        live = self.signals.get("range_live")
+        if live is not None:
+            return live
+        for v in (r["ev_km"], r["total_km"]):
             if v is not None:
                 return v
         return None
@@ -959,6 +968,31 @@ class CarState:
         speed = self.signals.get("speed")
         if speed is not None:
             return "driving" if speed > 0 else "parked"
+        return None
+
+    @property
+    def ac_preset(self) -> str | None:
+        """空调快捷预设的**当前状态** —— 只认"专属状态位", 推断不出来就返回 None。
+
+        ⚠️ 踩坑记录(真机): **不能拿 `3713` climateMode 当预设**。它是**普通空调模式**
+        (1=制冷 / 3=制热 / 4=换气): 用户点"制热"时 3713=3, 被误读成"极速升温"(界面显示 HI);
+        空调空闲时残留的 4 也会被读成"快速除味"。`2669/2681`(rapidCooling/rapidHeating)
+        同样只是在特定功能期间才置位, 不能当"当前预设"。
+
+        目前**唯一**能确认与 App 同步的预设状态位是:
+          * `1945` windshieldDefrost → 风挡除霜
+        其余三项(极速降温 / 极速升温 / 快速除味)车端**不给状态**, 由集成侧本地记忆点亮
+        (见 climate.py 的 `_preset_memo`; 空调关闭或车端报出预设即作废)。
+        """
+        if self.flag("climate_on") is not True:      # 空调没开 → 谈不上预设
+            return None
+        if self.flag("windshield_defrost"):
+            return "风挡除霜"
+        mode = self.get("climate_mode")
+        # `3713=4`(换气) = App 的"快速除味"(用户实测: 它确实会同步; 点它时车端就是置 4)。
+        # ⚠️ 只认 4: 1/3 是普通"制冷/制热"模式, 绝不能当预设(否则点制热会显示成"极速升温")。
+        if mode is not None and int(mode) == 4:
+            return "快速除味"
         return None
 
 

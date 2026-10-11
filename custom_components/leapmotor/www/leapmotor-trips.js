@@ -10,7 +10,7 @@
  * --------------------------------
  *   * 列表 = 主视图。按天分组(今天/昨天/9月12日…), 标题右边是当天总里程;
  *     每段行程是**一张白色小卡**: 左边一张小地图缩略图(瓦片 + 红色轨迹),
- *     右上大号里程 + 时间段, 底部三列小指标(耗时 / 耗电 kWh / 平均能耗)。
+ *     右上大号里程 + 时间段, 底部三列小指标(耗时 / 耗电 kWh / 平均电耗)。
  *   * 点卡片 → 进详情: 上方一张大图(完整轨迹 + 起点黑钉/终点红钉),
  *     下方信息卡(日期时间标题、起终点两行、3×2 指标网格)。
  *   * **不显示电量百分比, 也不显示电费** —— 我们没有可靠的电费数据;
@@ -57,7 +57,7 @@
 
 const TILE = 256;
 
-const CARD_VERSION = "1.4.5";
+const CARD_VERSION = "1.5.2";
 
 /* 断档阈值(km): 相邻轨迹点距离超过它 → 视为中间丢过采样, 用虚线连 */
 const TRACK_GAP_KM = 2;
@@ -176,6 +176,13 @@ function clamp(v, lo, hi) {
   return Math.min(hi, Math.max(lo, v));
 }
 
+/** HTML 转义(气泡/自建标签里的文本都要过一遍, 与其它卡片同名同义) */
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 /** 两点球面距离(km) —— 用于判断轨迹是否断档。 */
 function haversineKm(a, b) {
   const r = 6371.0088;
@@ -189,18 +196,29 @@ function haversineKm(a, b) {
 }
 
 /** 车速 → 热力图颜色(0~120+ km/h 分段色板)。 */
-function getSpeedColor(speed) {
-  const s = Math.max(0, Math.min(120, Number(speed) || 0));
-  if (s < 15) return "#2196f3";   // 蓝 (起步/拥堵)
-  if (s < 40) return "#4caf50";   // 绿 (市区低速)
-  if (s < 80) return "#ffeb3b";   // 黄 (快速路)
-  if (s < 100) return "#ff9800";  // 橙 (高速)
-  return "#f44336";               // 红 (极速)
+function getSpeedColor(speed, lo, hi) {
+  const a = Number.isFinite(Number(lo)) ? Number(lo) : 0;
+  const b = Number.isFinite(Number(hi)) && Number(hi) > a ? Number(hi) : 120;
+  const t = Math.max(0, Math.min(1, ((Number(speed) || 0) - a) / (b - a)));
+  if (t < 0.2) return "#2196f3";  // 蓝 (本条行程里最慢那段)
+  if (t < 0.45) return "#4caf50"; // 绿
+  if (t < 0.7) return "#ffeb3b";  // 黄
+  if (t < 0.9) return "#ff9800";  // 橙
+  return "#f44336";               // 红 (本条行程里最快那段)
 }
 
 /* ── 小工具(不引入任何依赖) ── */
 function pad2(n) {
   return (n < 10 ? "0" : "") + n;
+}
+
+/** epoch 秒 → "10月11日 20:35:12"(点选轨迹点时显示采样时刻) */
+function fmtMoment(ts) {
+  const n = Number(ts);
+  if (!n || !Number.isFinite(n)) return "";
+  const d = new Date(n * 1000);
+  return (d.getMonth() + 1) + "月" + d.getDate() + "日 " +
+    pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
 }
 
 function fmtTime(ts) {
@@ -309,6 +327,17 @@ function simplify(points, maxN) {
   return out;
 }
 
+/* ── IconPark 图标(内联 SVG; 选自 IconPark, 48×48 描边风格) ─────────────
+ * 颜色走 currentColor(跟随文字/主题色), 线宽统一 4/48 → 视觉与 ha-icon 一致。
+ * 用 ipIcon(name, size) 取用; 未收录的语义继续用 ha-icon 的 mdi。 */
+const IP = {"zoomIn":"<path d=\"M21 38C30.3888 38 38 30.3888 38 21C38 11.6112 30.3888 4 21 4C11.6112 4 4 11.6112 4 21C4 30.3888 11.6112 38 21 38Z\" /><path d=\"M21 15L21 27\" /><path d=\"M15.0156 21.0156L27 21\" /><path d=\"M33.2216 33.2217L41.7069 41.707\" />","zoomOut":"<path d=\"M21 38C30.3888 38 38 30.3888 38 21C38 11.6112 30.3888 4 21 4C11.6112 4 4 11.6112 4 21C4 30.3888 11.6112 38 21 38Z\" /><path d=\"M15 21L27 21\" /><path d=\"M33.2216 33.2217L41.7069 41.707\" />","zoomInternal":"<path d=\"M44 4H4V44H44V4Z\" /><path d=\"M16 4V16H4\" /><path d=\"M36 24V36H24\" /><path d=\"M36 36L24 24\" /><path d=\"M4 6V26\" /><path d=\"M7 4H27\" />","download":"<path d=\"M6 24.0083V42H42V24\" /><path d=\"M33 23L24 32L15 23\" /><path d=\"M23.9917 6V32\" />","back":"<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M44 40.8361C39.1069 34.8632 34.7617 31.4739 30.9644 30.6682C27.1671 29.8625 23.5517 29.7408 20.1182 30.303V41L4 23.5453L20.1182 7V17.167C26.4667 17.2172 31.8638 19.4948 36.3095 24C40.7553 28.5052 43.3187 34.1172 44 40.8361Z\" />","redo":"<path d=\"M36.7279 36.7279C33.4706 39.9853 28.9706 42 24 42C14.0589 42 6 33.9411 6 24C6 14.0589 14.0589 6 24 6C28.9706 6 33.4706 8.01472 36.7279 11.2721C38.3859 12.9301 42 17 42 17\" /><path d=\"M42 8V17H33\" />"};
+function ipIcon(name, size) {
+  const s = size || 18;
+  return '<svg class="ip" viewBox="0 0 48 48" width="' + s + '" height="' + s +
+    '" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"' +
+    ' stroke-linejoin="round">' + (IP[name] || "") + "</svg>";
+}
+
 class LeapmotorTripsCard extends HTMLElement {
   constructor() {
     super();
@@ -339,6 +368,7 @@ class LeapmotorTripsCard extends HTMLElement {
     this._tiles = new Map();
     this._needFit = true;
     this._dragging = false;
+    this._pt = null;      // 点中的轨迹点气泡(详情大图)
     // 详情图的可视化开关(可在 yaml 里设默认值, 也能在卡片上临时切换)
     this._heatmap = true;       // 速度热力图(按实时车速给轨迹上色)
     this._flow = true;          // 流动光效(顺着行驶方向的动画)
@@ -439,7 +469,7 @@ class LeapmotorTripsCard extends HTMLElement {
     const code = String((err && err.code) || "");
     const msg = String((err && err.message) || err || "");
     if (code === "unknown_command" || /unknown command/i.test(msg)) {
-      return "需要 beta 版集成(行程记录)";
+      return "";                      // 命令没注册(旧版集成): 不提示, 安静留空
     }
     if (code === "not_found") return "集成还没就绪(等车机上报数据后点刷新)";
     if (code === "unauthorized" || /admin|管理员/i.test(msg)) return "需要管理员权限";
@@ -456,7 +486,7 @@ class LeapmotorTripsCard extends HTMLElement {
   async _load() {
     if (!this._hass || this._loading) return;
     if (!this._hass.callWS) {
-      this._err = "需要 beta 版集成(行程记录)";
+      this._err = "";                 // 拿不到 WS: 安静留空, 不再提示"需要 beta 版集成"
       this._render();
       return;
     }
@@ -543,7 +573,8 @@ class LeapmotorTripsCard extends HTMLElement {
     return pts;
   }
 
-  /** 原始轨迹(WGS-84)→ 显示坐标, 并按距离切成 runs(实线)/ breaks(虚线)。
+  
+/** 原始轨迹(WGS-84)→ 显示坐标, 并按距离切成 runs(实线)/ breaks(虚线)。
    *  保留可选的第三维车速(p[2]), 供速度热力图着色用。 */
   _prepare(raw, maxN) {
     const src = simplify(raw || [], maxN);
@@ -553,10 +584,25 @@ class LeapmotorTripsCard extends HTMLElement {
       const la = Number(p[0]);
       const lo = Number(p[1]);
       const speed = p.length >= 3 ? Number(p[2]) || 0 : null;
+      const ts = p.length >= 4 && Number.isFinite(Number(p[3])) ? Number(p[3]) : null;
       if (!Number.isFinite(la) || !Number.isFinite(lo)) continue;
       if (la === 0 && lo === 0) continue;
       const gcj = wgs84ToGcj02(la, lo);
-      disp.push([gcj[0], gcj[1], speed]);
+      // [0]=GCJ 纬度 [1]=GCJ 经度 [2]=车速 [3]=WGS 纬度 [4]=WGS 经度 [5]=采样时刻(epoch 秒)
+      disp.push([gcj[0], gcj[1], speed, la, lo, ts]);
+    }
+    // 本条行程的**实际速度区间** —— 热力图配色与下方速度条都按它取值(而不是固定的 0~120)
+    let lo = null, hi = null;
+    for (const q of disp) {
+      if (q.length < 3 || q[2] == null) continue;
+      const v = Number(q[2]);
+      if (!Number.isFinite(v)) continue;
+      lo = lo == null ? v : Math.min(lo, v);
+      hi = hi == null ? v : Math.max(hi, v);
+    }
+    if (lo != null && hi != null && hi - lo < 10) {      // 区间太窄(全程匀速) → 左右各撑 5
+      lo = Math.max(0, lo - 5);
+      hi = hi + 5;
     }
     const runs = [];
     const breaks = [];
@@ -572,10 +618,11 @@ class LeapmotorTripsCard extends HTMLElement {
       cur.push(disp[i]);
     }
     if (cur.length) runs.push(cur);
-    return { runs: runs, breaks: breaks };
+    return { runs: runs, breaks: breaks, lo: lo, hi: hi };
   }
 
   async _openDetail(id, keepView) {
+    this._pt = null;
     const t = this._find(id);
     this._selectedId = id;
     this._selTrip = t;
@@ -729,11 +776,16 @@ class LeapmotorTripsCard extends HTMLElement {
 
   _renderToolbar() {
     if (!this._ovlBox) return;
-    this._ovlBox.checked = this._overlayN > 0;
+    const chip = (box, on) => {
+      box.checked = !!on;
+      const lab = box.closest(".tchip");
+      if (lab) lab.classList.toggle("on", !!on);
+    };
+    chip(this._ovlBox, this._overlayN > 0);
     this._ovlN.value = String(this._overlayN || 5);
     if (this._mstyleSel) this._mstyleSel.value = this._mapStyle || "vector";
-    if (this._hmBox) this._hmBox.checked = !!this._heatmap;
-    if (this._flowBox) this._flowBox.checked = !!this._flow;
+    if (this._hmBox) chip(this._hmBox, this._heatmap);
+    if (this._flowBox) chip(this._flowBox, this._flow);
     this._applyMapStyle();
   }
 
@@ -783,7 +835,7 @@ class LeapmotorTripsCard extends HTMLElement {
         return;
       }
       const closed = this._collapsed[key] !== false;   // 默认收起
-      // 当天汇总(与单段行程同一套 .mets 排版): 收起时显示"耗时/耗电/百公里能耗"
+      // 当天汇总(与单段行程同一套 .mets 排版): 收起时显示"耗时/耗电/百公里电耗"
       let dur = 0, kwh = 0, hasDur = false, hasKwh = false;
       for (const t of group) {
         if (t.duration_min != null) { dur += Number(t.duration_min) || 0; hasDur = true; }
@@ -793,8 +845,8 @@ class LeapmotorTripsCard extends HTMLElement {
       const sumMets = [
         ["耗时", hasDur ? fmtDurShort(dur) : "—", "", "当天累计耗时"],
         ["耗电", hasKwh ? fmtKwh(kwh) : "—", hasKwh ? "kWh" : "", "当天累计耗电"],
-        ["平均能耗", dayEff == null ? "—" : fmtNum(dayEff, 1),
-         dayEff == null ? "" : "kWh/100km", "当天百公里能耗", 1],
+        ["平均电耗", dayEff == null ? "—" : fmtNum(dayEff, 1),
+         dayEff == null ? "" : "kWh/100km", "当天百公里电耗", 1],
       ];
       const sumHtml = sumMets.map((m) =>
         '<div class="met" title="' + m[3] + '"><span class="k">' + m[0] + '</span><span class="v">' +
@@ -852,10 +904,10 @@ class LeapmotorTripsCard extends HTMLElement {
     const mets = [
       ["耗时", (t.approx_time && t.duration_min != null ? "≈ " : "") + fmtDurShort(t.duration_min), "", "时长"],
       ["耗电", fmtKwh(t.energy_kwh), "kWh", "这段行程的耗电量"],
-      // 平均能耗: 单位要写全 "kWh/100km" —— 只写 "kWh" 会被读成"耗电量"。
+      // 平均电耗: 单位要写全 "kWh/100km" —— 只写 "kWh" 会被读成"耗电量"。
       // 窄列放不下时由 _fitUnits() **整段隐藏**(而不是截成 "kWh/10…"); 无值时也不挂单位。
-      ["平均能耗", t.efficiency == null ? "—" : fmtNum(t.efficiency, 1),
-       t.efficiency == null ? "" : "kWh/100km", "百公里能耗 (kWh/100km)", 1],
+      ["平均电耗", t.efficiency == null ? "—" : fmtNum(t.efficiency, 1),
+       t.efficiency == null ? "" : "kWh/100km", "百公里电耗 (kWh/100km)", 1],
     ];
     const metHtml = mets
       .map((m) => '<div class="met" title="' + m[3] + '"><span class="k">' + m[0] + "</span><span class=\"v\">" +
@@ -993,7 +1045,7 @@ class LeapmotorTripsCard extends HTMLElement {
       if (run.length < 2) continue;
       const hasSpeed = !!this._heatmap && run.some((p) => p.length >= 3 && p[2] != null);
       if (hasSpeed) {
-        svg.appendChild(this._polyHeatmap(run, mapPt, 2, defs, this._flow));
+        svg.appendChild(this._polyHeatmap(run, mapPt, 2, defs, this._flow, prep.lo, prep.hi));
       } else {
         svg.appendChild(this._poly(run, mapPt, "#e53935", 2, false));
         if (this._flow) svg.appendChild(this._polyFlow(run, mapPt, 2));
@@ -1044,6 +1096,7 @@ class LeapmotorTripsCard extends HTMLElement {
         if (this._dayPrep[key] === undefined) {
           const runs = [];
           const breaks = [];
+          let dLo = null, dHi = null;                 // 当天的速度区间(供配色)
           for (const t of dayTrips(key)) {
             if (!t.point_count) continue;
             let raw = [];
@@ -1051,10 +1104,17 @@ class LeapmotorTripsCard extends HTMLElement {
               raw = await this._ensureThumbTrack(t.id);
             } catch (e) { raw = []; }
             const prep = raw && raw.length ? this._prepare(raw, 120) : null;
-            if (prep) { for (const r of prep.runs) runs.push(r); for (const b of prep.breaks) breaks.push(b); }
+            if (prep) {
+              for (const r of prep.runs) runs.push(r);
+              for (const b of prep.breaks) breaks.push(b);
+              if (prep.lo != null && prep.hi != null) {
+                dLo = dLo == null ? prep.lo : Math.min(dLo, prep.lo);
+                dHi = dHi == null ? prep.hi : Math.max(dHi, prep.hi);
+              }
+            }
           }
           if (seq !== this._daySeq) return;
-          this._dayPrep[key] = runs.length ? { runs, breaks } : null;
+          this._dayPrep[key] = runs.length ? { runs, breaks, lo: dLo, hi: dHi } : null;
         }
         if (seq !== this._daySeq || !dc.isConnected) return;
         this._paintDayThumb(dc);
@@ -1105,7 +1165,7 @@ class LeapmotorTripsCard extends HTMLElement {
       if (run.length < 2) continue;
       const hasSpeed = !!this._heatmap && run.some((p) => p.length >= 3 && p[2] != null);
       if (hasSpeed) {
-        svg.appendChild(this._polyHeatmap(run, mapPt, 2, defs, this._flow));
+        svg.appendChild(this._polyHeatmap(run, mapPt, 2, defs, this._flow, prep.lo, prep.hi));
       } else {
         svg.appendChild(this._poly(run, mapPt, "#e53935", 2, false));
         if (this._flow) svg.appendChild(this._polyFlow(run, mapPt, 2));
@@ -1228,7 +1288,7 @@ class LeapmotorTripsCard extends HTMLElement {
       ["里程", fmtKm(t.distance_km), "km"],
       ["耗时", (t.approx_time && t.duration_min != null ? "≈ " : "") + fmtDurShort(t.duration_min), ""],
       ["耗电", fmtKwh(t.energy_kwh), "kWh"],
-      ["百公里能耗", t.efficiency == null ? "—" : fmtNum(t.efficiency, 1), "kWh/100km"],
+      ["百公里电耗", t.efficiency == null ? "—" : fmtNum(t.efficiency, 1), "kWh/100km"],
       ["平均速度", fmtNum(t.avg_speed_kmh, 1), "km/h"],
       ["轨迹点", t.point_count ? String(t.point_count) : "—", t.point_count ? "个" : ""],
     ];
@@ -1269,6 +1329,19 @@ class LeapmotorTripsCard extends HTMLElement {
   }
 
   // ── 地图(详情大图) ──
+  /** 速度条两端标签: 显示**本条行程**的实际速度区间(没有速度数据时回落到 0 / 120+)。 */
+  _renderSpeedBar() {
+    if (!this._spdLoEl || !this._spdHiEl) return;
+    const lo = this._sel && this._sel.lo, hi = this._sel && this._sel.hi;
+    if (lo == null || hi == null) {
+      this._spdLoEl.textContent = "0";
+      this._spdHiEl.textContent = "120+ km/h";
+      return;
+    }
+    this._spdLoEl.textContent = String(Math.round(lo));
+    this._spdHiEl.textContent = Math.round(hi) + " km/h";
+  }
+
   _renderMap() {
     if (!this._mapEl) return;
     if (this._view !== "detail" || this._detailView.hidden) return;
@@ -1276,6 +1349,7 @@ class LeapmotorTripsCard extends HTMLElement {
     this._renderTiles();
     this._renderLines();
     this._renderMarks();
+    this._renderSpeedBar();
     this._renderMapHint();
   }
 
@@ -1446,7 +1520,7 @@ class LeapmotorTripsCard extends HTMLElement {
 
   /** 逐段折线(带可选速度渐变 + 流动光效)。mapPt 返回 "x,y" 或 [x,y]; flow 由调用方传入,
       这样缩略图/详情可以各用各的开关(不再隐式读 this._flow)。 */
-  _polyHeatmap(run, mapPt, width, defsEl, flow) {
+  _polyHeatmap(run, mapPt, width, defsEl, flow, lo, hi) {
     const SVG = "http://www.w3.org/2000/svg";
     const group = document.createElementNS(SVG, "g");
     const pt = (p) => {
@@ -1466,10 +1540,10 @@ class LeapmotorTripsCard extends HTMLElement {
       grad.setAttribute("x2", b[0]); grad.setAttribute("y2", b[1]);
       const s1 = document.createElementNS(SVG, "stop");
       s1.setAttribute("offset", "0%");
-      s1.setAttribute("stop-color", getSpeedColor(p1[2]));
+      s1.setAttribute("stop-color", getSpeedColor(p1[2], lo, hi));
       const s2 = document.createElementNS(SVG, "stop");
       s2.setAttribute("offset", "100%");
-      s2.setAttribute("stop-color", getSpeedColor(p2[2]));
+      s2.setAttribute("stop-color", getSpeedColor(p2[2], lo, hi));
       grad.appendChild(s1); grad.appendChild(s2);
       defsEl.appendChild(grad);
 
@@ -1519,7 +1593,8 @@ class LeapmotorTripsCard extends HTMLElement {
         // 热力图只在"开了且这点列真的带 speed"时用; 否则单色红。
         const hasSpeed = !!this._heatmap && run.some((p) => p.length >= 3 && p[2] != null);
         if (hasSpeed) {
-          frag.appendChild(this._polyHeatmap(run, mapPt, 3.5, defsEl, this._flow));
+          frag.appendChild(this._polyHeatmap(run, mapPt, 3.5, defsEl, this._flow,
+            this._sel && this._sel.lo, this._sel && this._sel.hi));
         } else {
           frag.appendChild(this._poly(run, mapPt, "#e53935", 3.5, false));
           if (this._flow) frag.appendChild(this._polyFlow(run, mapPt, 3.5));
@@ -1531,6 +1606,50 @@ class LeapmotorTripsCard extends HTMLElement {
     }
     this._trajEl.innerHTML = "";
     this._trajEl.appendChild(frag);
+  }
+
+  /** 点选轨迹点: 以点击处为中心找**屏幕上**最近的一个点(命中半径 22px), 组气泡内容。 */
+  _pickPoint(clientX, clientY) {
+    if (!this._sel || !this._mapEl) return;
+    const rect = this._mapEl.getBoundingClientRect();
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+    const mapPt = this._screenMapper();
+    const toXY = (p) => {
+      const xy = mapPt(p);
+      return Array.isArray(xy) ? xy.map(Number) : String(xy).split(",").map(Number);
+    };
+    let best = null, bestD = Infinity, idx = 0, dist = 0, total = 0;
+    let prev = null;
+    for (const run of this._sel.runs) {
+      for (const p of run) {
+        if (prev) dist += haversineKm(prev, p);
+        const [sx, sy] = toXY(p);
+        const d = Math.hypot(sx - px, sy - py);
+        if (d < bestD) bestD = d, best = { p, idx, dist };
+        prev = p; idx++; total++;
+      }
+      prev = null;                                // 断档处不累加距离
+    }
+    if (!best || bestD > 22) {                    // 点空白处 → 收起气泡
+      if (this._pt) { this._pt = null; this._renderMarks(); }
+      return;
+    }
+    const xy = toXY(best.p);
+    const spd = best.p.length >= 3 && best.p[2] != null ? Number(best.p[2]) : null;
+    const lines = [];
+    lines.push("第 " + (best.idx + 1) + " / " + total + " 点");
+    if (best.p.length >= 5 && Number.isFinite(Number(best.p[3])) && Number.isFinite(Number(best.p[4]))) {
+      lines.push(fmtCoord(best.p[3], best.p[4]) || "坐标未知");
+    }
+    lines.push(spd == null ? "速度 —" : "速度 " + fmtNum(spd, 1, "km/h"));
+    if (best.p.length >= 6) {
+      const tsTxt = fmtMoment(best.p[5]);
+      if (tsTxt) lines.push("时间 " + tsTxt);
+    }
+    lines.push("距起点 " + fmtNum(best.dist, 2, "km"));
+    this._pt = { x: Number(xy[0]), y: Number(xy[1]), lines };   // x/y 是地图内像素(与 .mk 同坐标系)
+    this._renderMarks();
   }
 
   _renderMarks() {
@@ -1559,6 +1678,14 @@ class LeapmotorTripsCard extends HTMLElement {
     let html = "";
     if (start) html += '<div class="mk start" style="' + place(start) + '">起</div>';
     if (end) html += '<div class="mk end" style="' + place(end) + '">终</div>';
+    if (this._pt) {
+      // 气泡横向夹回地图内(靠边时不要溢出), 竖向固定点在点上方
+      const tipW = 178;
+      const left = Math.min(Math.max(this._pt.x, tipW / 2 + 4), Math.max(w - tipW / 2 - 4, tipW / 2 + 4));
+      html += '<div class="mk pt" style="left:' + this._pt.x + "px;top:" + this._pt.y + 'px"></div>' +
+        '<div class="ptTip" style="left:' + left.toFixed(1) + "px;top:" + (this._pt.y - 10).toFixed(1) + 'px">' +
+        this._pt.lines.map((s) => "<div>" + esc(s) + "</div>").join("") + "</div>";
+    }
     this._marksEl.innerHTML = html;
   }
 
@@ -1999,12 +2126,34 @@ class LeapmotorTripsCard extends HTMLElement {
         .back ha-icon { width: 18px; height: 18px; --mdc-icon-size: 18px; }
         .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; margin-top: 8px; }
         .tools label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+        /* 选项区可换行; 缩放钮单独一组靠右, 不会被挤到下一行 */
+        .tools .tOpts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+        .tools .tZoom { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; margin-left: auto; }
+        /* 胶囊开关(选中=主题色): 叠加 / 热力图 / 光效 */
+        .tchip {
+          display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+          padding: 4px 9px; border-radius: 999px; font-size: 12px; white-space: nowrap;
+          color: var(--primary-text-color, #212121);
+          background: var(--ha-card-background, var(--card-background-color, #fff));
+          border: 1px solid var(--divider-color, rgba(0, 0, 0, .09));
+          box-shadow: 0 1px 3px rgba(0, 0, 0, .13);
+          transition: background .15s ease;
+        }
+        /* 三态与卡片其它按钮一致: 常态白底灰边 / hover 淡主题色 / 按下轻微缩放 */
+        .tchip:hover { background: rgba(var(--rgb-primary-color, 3, 169, 244), .12); }
+        .tchip:active { transform: scale(.96); }
+        .ip { display: inline-block; vertical-align: middle; flex: none; }
+        .tchip.on {
+          background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff);
+          border-color: transparent;
+        }
+        .tchip.on:hover { background: var(--primary-color, #03a9f4); filter: brightness(1.08); }
         .tools select, .tools input[type="number"] {
           padding: 2px 4px; font: inherit; font-size: 12px; color: inherit;
           border: 1px solid var(--divider-color, #d8dde2); border-radius: 6px;
           background: var(--card-background-color, #fff);
         }
-        .tools input[type="number"].ovln { width: 52px; }
+        .tools input[type="number"].ovln { width: 40px; padding: 2px 3px; text-align: center; }
         /* 导出格式气泡菜单(点导出按钮弹出) */
         .expmenu {
           position: absolute; right: 10px; top: 42px; z-index: 30; display: none;
@@ -2058,6 +2207,19 @@ class LeapmotorTripsCard extends HTMLElement {
         }
         .mk.start { background: #111; }
         .mk.end { background: #e53935; }
+        /* 点中的轨迹点: 小蓝点 + 信息气泡 */
+        .mk.pt {
+          width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px;
+          background: var(--primary-color, #03a9f4); border: 2px solid #fff;
+        }
+        .ptTip {
+          position: absolute; z-index: 8; width: 178px; box-sizing: border-box;
+          transform: translate(-50%, -100%);
+          padding: 6px 9px; border-radius: 10px; font-size: 11px; line-height: 1.55;
+          color: #fff; background: rgba(33, 33, 33, .92);
+          box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
+          pointer-events: none; text-align: center; white-space: nowrap;
+        }
         .mhint {
           position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 6;
           display: none; padding: 3px 9px; border-radius: 999px; font-size: 11px; white-space: nowrap;
@@ -2102,7 +2264,7 @@ class LeapmotorTripsCard extends HTMLElement {
           <span class="sum sub"></span>
           <span class="spacer"></span>
           <button class="collapseAll" title="全部收起 / 展开"><ha-icon icon="mdi:unfold-less-horizontal"></ha-icon></button>
-          <button class="refresh" title="刷新行程列表"><ha-icon icon="mdi:refresh"></ha-icon></button>
+          <button class="refresh" title="刷新行程列表">${ipIcon("redo", 16)}</button>
         </div>
         <div class="active"><span class="dot"></span><span class="atext"></span></div>
 
@@ -2113,11 +2275,11 @@ class LeapmotorTripsCard extends HTMLElement {
 
         <div class="view detailview" hidden>
           <div class="dhead">
-            <button class="back" title="返回行程列表"><ha-icon icon="mdi:arrow-left"></ha-icon></button>
+            <button class="back" title="返回行程列表">${ipIcon("back", 18)}</button>
             <span class="dtitle">行程详情</span>
             <span class="spacer"></span>
             <button class="del dexp" data-act="export" title="导出这段行程(CSV / XML / JSON)">
-              <ha-icon icon="mdi:download-outline"></ha-icon>
+              ${ipIcon("download", 18)}
             </button>
             <button class="del ddel" data-act="del" title="删除这段行程">
               <ha-icon icon="mdi:trash-can-outline"></ha-icon>
@@ -2135,25 +2297,28 @@ class LeapmotorTripsCard extends HTMLElement {
             <div class="mhint"></div>
           </div>
           <div class="speed-bar">
-            <span>0</span>
+            <span class="spdLo">0</span>
             <div class="speed-gradient"></div>
-            <span>120+ km/h</span>
+            <span class="spdHi">120+ km/h</span>
           </div>
           <div class="tools">
-            <label><input type="checkbox" class="ovlbox">叠加最近</label>
-            <input type="number" class="ovln" min="1" max="50" step="1" value="5" title="叠加最近几段(1~50, 手填)">段
-            <select class="mstyle" title="底图样式">
-              <option value="auto">自动</option>
-              <option value="vector">路网</option>
-              <option value="satellite">卫星</option>
-              <option value="dark">深色</option>
-            </select>
-            <label><input type="checkbox" class="hmbox">热力图</label>
-            <label><input type="checkbox" class="flowbox">光效</label>
-            <span class="spacer"></span>
-            <button data-m="fit" title="缩放至轨迹">⤢</button>
-            <button data-m="in" title="放大">＋</button>
-            <button data-m="out" title="缩小">－</button>
+            <div class="tOpts">
+              <label class="tchip ovlLab"><input type="checkbox" class="ovlbox" hidden>叠加</label>
+              <input type="number" class="ovln" min="1" max="50" step="1" value="5" title="叠加最近几段(1~50, 手填)">段
+              <select class="mstyle" title="底图样式">
+                <option value="auto">自动</option>
+                <option value="vector">路网</option>
+                <option value="satellite">卫星</option>
+                <option value="dark">深色</option>
+              </select>
+              <label class="tchip hmLab"><input type="checkbox" class="hmbox" hidden>热力图</label>
+              <label class="tchip flowLab"><input type="checkbox" class="flowbox" hidden>光效</label>
+            </div>
+            <div class="tZoom">
+              <button data-m="fit" title="缩放至轨迹">${ipIcon("zoomInternal", 16)}</button>
+              <button data-m="in" title="放大">${ipIcon("zoomIn", 16)}</button>
+              <button data-m="out" title="缩小">${ipIcon("zoomOut", 16)}</button>
+            </div>
           </div>
           <div class="dinfo sheet"></div>
           <div class="legend"></div>
@@ -2186,6 +2351,8 @@ class LeapmotorTripsCard extends HTMLElement {
     this._hmBox = this.shadowRoot.querySelector(".hmbox");
     this._flowBox = this.shadowRoot.querySelector(".flowbox");
     this._speedBar = this.shadowRoot.querySelector(".speed-bar");
+    this._spdLoEl = this.shadowRoot.querySelector(".speed-bar .spdLo");
+    this._spdHiEl = this.shadowRoot.querySelector(".speed-bar .spdHi");
 
     this._refreshBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
@@ -2300,6 +2467,7 @@ class LeapmotorTripsCard extends HTMLElement {
       const dx = ev.clientX - start.x;
       const dy = ev.clientY - start.y;
       if (!this._dragging && Math.abs(dx) + Math.abs(dy) < 4) return;
+      if (!this._dragging) this._pt = null;       // 开始拖动 → 收起旧气泡
       this._dragging = true;
       this._mapEl.classList.add("dragging");
       const c = project(start.center[0], start.center[1], this._zoom);
@@ -2313,8 +2481,33 @@ class LeapmotorTripsCard extends HTMLElement {
       this._mapEl.classList.remove("dragging");
       this._dragging = false;
     };
+    // ── 双指捏合缩放(手机/平板) ──
+    let pinch = null;
+    const dist2 = (ts) => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
+    this._mapEl.addEventListener("touchstart", (ev) => {
+      if (ev.touches.length !== 2) return;
+      ev.preventDefault();
+      start = null;                       // 捏合期间不做拖拽
+      this._pt = null;                    // 开始缩放 → 收起气泡
+      pinch = { d: dist2(ev.touches) || 1, zoom: this._zoom,
+                cx: (ev.touches[0].clientX + ev.touches[1].clientX) / 2,
+                cy: (ev.touches[0].clientY + ev.touches[1].clientY) / 2 };
+    }, { passive: false });
+    this._mapEl.addEventListener("touchmove", (ev) => {
+      if (!pinch || ev.touches.length !== 2) return;
+      ev.preventDefault();
+      const want = clamp(Math.round(pinch.zoom + Math.log2(dist2(ev.touches) / pinch.d)), 3, 18);
+      if (want !== this._zoom) this._zoomAt(pinch.cx, pinch.cy, want - this._zoom);
+    }, { passive: false });
+    this._mapEl.addEventListener("touchend", () => { pinch = null; });
+    this._mapEl.addEventListener("touchcancel", () => { pinch = null; });
     this._mapEl.addEventListener("pointerup", end);
     this._mapEl.addEventListener("pointercancel", end);
+    // 点轨迹附近 → 弹出该点的信息气泡(拖拽/缩放会先收起它)
+    this._mapEl.addEventListener("click", (ev) => {
+      if (this._dragging) return;                 // 拖动结束的那一下不算点击
+      this._pickPoint(ev.clientX, ev.clientY);
+    });
     this._mapEl.addEventListener("dblclick", (ev) => {
       ev.stopPropagation();
       this._zoomAt(ev.clientX, ev.clientY, 1);

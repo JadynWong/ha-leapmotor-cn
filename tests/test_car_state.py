@@ -87,6 +87,20 @@ def test_is_reev_only_true_when_fuel_signals_present():
     assert api_client.is_reev({}) is False
 
 
+def test_is_reev_ignores_zero_fuel_and_total_range():
+    """纯电车即使上报了这些键, 也不能判成增程(修 C11 纯电误显示燃油信息)。
+
+    C11 纯电真机: 会带着 `fuel_level=0`, 并且总续航 `range_total_*` 本来纯电也有
+    (不是燃油专属)。旧判据用 `is not None` 就把它当成了增程。
+    """
+    assert api_client.is_reev({"fuel_level": 0, "range_fuel_wltc": 0}) is False
+    assert api_client.is_reev({"range_total_cltc": 520, "soc": 60}) is False   # 纯电的总续航
+    assert api_client.is_reev({"fuel_ml": 0, "range_total_wltc": 480}) is False
+    # 增程车: 只要燃油专属信号为正
+    assert api_client.is_reev({"fuel_level": 0.5}) is True
+    assert api_client.is_reev({"range_fuel_cltc": 12}) is True
+
+
 # ── 胎压 ──
 def test_tire_pressure_kpa_to_bar():
     st = state({"2646": 247, "2653": 247, "2660": 247, "2667": 250})
@@ -428,3 +442,23 @@ def test_connection_dials_ipv4_first_and_uses_short_connect_timeout(monkeypatch)
     conn2 = api_client._IPv4FirstHTTPConnection("example.com", 80, timeout=20)
     conn2.connect()
     assert calls and calls[0][0] == 10, "只有 v6 时仍然要用它"
+
+
+# ── 空调快捷预设状态: 只认"专属状态位"(1945 除霜) 与 3713=4(除味); 要求空调真的开着 ──
+def test_ac_preset_from_signals():
+    assert state({"1938": 1, "1945": 1}).ac_preset == "风挡除霜"
+    # 3713=4(换气) = App 的"快速除味": 实测点它会置 4, 且与 App 同步
+    assert state({"1938": 1, "3713": 4}).ac_preset == "快速除味"
+    # 3713=1/3 是**普通**"制冷/制热"模式, 绝不能当预设 —— 否则点制热会显示成"极速升温"(HI)
+    assert state({"1938": 1, "3713": 1}).ac_preset is None
+    assert state({"1938": 1, "3713": 3}).ac_preset is None
+    # 2669/2681(rapidCooling/rapidHeating) 只在功能期间置位, 不作"当前预设"
+    assert state({"1938": 1, "2669": 1}).ac_preset is None
+    assert state({"1938": 1, "2681": 1}).ac_preset is None
+    # 空调没开 / 状态未知 → 一律 None
+    assert state({"1945": 1}).ac_preset is None
+    assert state({"1938": 0, "1945": 1}).ac_preset is None
+    assert state({"1938": 0, "3713": 4}).ac_preset is None
+    assert state({}).ac_preset is None
+    # 除霜优先
+    assert state({"1938": 1, "1945": 1, "3713": 4}).ac_preset == "风挡除霜"

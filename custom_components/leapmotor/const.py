@@ -45,6 +45,7 @@ MIN_BATTERY_KWH = 20.0
 MAX_BATTERY_KWH = 150.0
 
 # ── 重数据取数策略(见 coordinator._refresh_car_data)──
+CHARGE_LIMIT_HOLD_SECONDS = 180      # 充电上限命令后本地保持的时长(车端写库有延迟, 期间不被云端旧值覆盖)
 HEAVY_REFRESH_SECONDS = 600        # 停车时里程/能耗/配置的最小刷新间隔(行驶中一律跳过)
 # 「上周能耗拆分」的缓存时长: 它是**周汇总**(只在周一零点翻篇), 按需取(卡片打开/手动刷新),
 # 不占轮询; 缓存过了这个时长、或"上周"窗口翻篇了, 下次读卡片时再拉一次。

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -20,6 +21,9 @@ from .coordinator import LeapmotorCoordinator
 from .entity import LeapmotorEntity
 
 log = logging.getLogger(__name__)
+
+# "刚点过的预设"记多久: 降温/升温车端不回报, 界面靠它点亮(车端报状态或空调关闭即作废)
+PRESET_MEMO_SECONDS = 3600
 
 # 中文标签 → 客户端里的快捷模式键
 PRESET_MODES = {
@@ -54,6 +58,9 @@ class LeapmotorClimate(LeapmotorEntity, ClimateEntity):
         self._attr_hvac_mode = HVACMode.OFF
         self._attr_target_temperature = 24.0
         self._attr_preset_mode = None
+        # 本地"刚点过的预设"记忆(标签, 到期时刻): 极速降温/升温 车端不回报状态, 只能靠它点亮;
+        # 车端一旦报了预设(除霜/除味) 或明确说空调关了, 立即清掉。
+        self._preset_memo: tuple[str, float] | None = None
 
     # ── 真实状态(车况信号) ──
     @property
@@ -96,6 +103,28 @@ class LeapmotorClimate(LeapmotorEntity, ClimateEntity):
         return self._attr_hvac_mode if self._attr_hvac_mode != HVACMode.OFF else HVACMode.COOL
 
     @property
+    def preset_mode(self) -> str | None:
+        """当前快捷预设: **车端信号优先**, 其次用本地"刚点过"的记忆。
+
+        实测: 除霜(`1945`)与除味(`3713=4`)车端会回报状态(App 里也能看到开关亮);
+        而极速降温/升温车端**不回报**(App 里同样不显示), 所以那两项要靠本地记忆点亮,
+        否则界面上"点了却没有任何状态"。车端报了预设、或明确说空调已关 → 记忆立刻作废。
+        """
+        st = self.coordinator.car_state
+        real = st.ac_preset if st is not None else None
+        if real:
+            self._preset_memo = None                     # 车端有准信 → 以车端为准
+            return real
+        memo = self._preset_memo
+        if memo is None:
+            return None
+        label, until = memo
+        if time.time() >= until or (st is not None and st.flag("climate_on") is False):
+            self._preset_memo = None                     # 过期 / 车端说空调关了 → 作废
+            return None
+        return label
+
+    @property
     def current_temperature(self) -> float | None:
         st = self.coordinator.car_state
         return st.get("interior_temp") if st else None
@@ -123,11 +152,13 @@ class LeapmotorClimate(LeapmotorEntity, ClimateEntity):
             "set_temp_right": st.get("climate_temp_right"),
             "fast_cooling": st.flag("fast_cooling"),
             "fast_heating": st.flag("fast_heating"),
+            "windshield_defrost": st.flag("windshield_defrost"),
             "ptc_power": st.get("ptc_power"),
         }
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         if hvac_mode == HVACMode.OFF:
+            self._preset_memo = None
             await self.coordinator.async_call("ac_off")
             self._attr_hvac_mode = HVACMode.OFF
             self.coordinator.remember("ac_on", False)
@@ -159,9 +190,17 @@ class LeapmotorClimate(LeapmotorEntity, ClimateEntity):
         key = PRESET_MODES.get(preset_mode, "boost_cool")
         await self.coordinator.async_call("ac_quick", mode=key)
         self._attr_preset_mode = preset_mode
+        self._preset_memo = (preset_mode, time.time() + PRESET_MEMO_SECONDS)
+        # 命令后车端上报有延迟: 先给本地乐观值(否则"空调开着"要等下一帧才显示出来),
+        # 车端信号一到就自动让位(recall 的宽限期逻辑)。
         self.coordinator.remember("ac_on", True)
-        if self._attr_hvac_mode == HVACMode.OFF:
-            self._attr_hvac_mode = HVACMode.COOL
+        self.coordinator.remember("ac_hvac", {
+            "boost_cool": HVACMode.COOL,
+            "boost_heat": HVACMode.HEAT,
+            "deodorize": HVACMode.FAN_ONLY,
+            "defrost": HVACMode.FAN_ONLY,
+        }.get(key, HVACMode.COOL))
+        await self.coordinator.async_request_refresh()
         self.async_write_ha_state()
 
     async def async_turn_on(self) -> None:

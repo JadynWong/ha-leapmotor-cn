@@ -530,3 +530,15 @@ def test_frozen_finish_after_restart_rewinds_to_persisted_moving_time():
     assert trip.frozen is True
     assert trip.ended_at == pytest.approx(T0 + 120, abs=1), "结束时刻应回拨, 不算进失联的一小时"
     assert trip.duration_min == pytest.approx(2.0, abs=0.1)
+
+
+def test_track_points_carry_timestamp():
+    """轨迹点带采样时刻(第 4 维) —— 卡片点选轨迹点时要显示"这个点是什么时候采的"。"""
+    rec = recorder()
+    st = frame(1_700_000_000.0)
+    rec.process(st, now=1_700_000_000.0)
+    pts = rec._points
+    assert len(pts) == 1
+    assert len(pts[0]) == 4, "轨迹点应为 [lat, lon, speed, ts]"
+    assert pts[0][2] == 30.0           # 车速
+    assert pts[0][3] == pytest.approx(1_700_000_000.0)   # 采样时刻

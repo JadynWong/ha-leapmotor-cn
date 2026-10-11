@@ -457,7 +457,7 @@ class TripRecorder:
                         reason="行程开始前观测到里程跳变", prev_pos=prev_pos)
                 self._start(st, frame_time, now, odo)
                 if not stale:
-                    self._add_point(st)
+                    self._add_point(st, now)
                 self._last_moving_ts = frame_time
             else:
                 self._maybe_reconstruct(st, now, odo, prev_odo, prev_soc,
@@ -474,7 +474,7 @@ class TripRecorder:
         if driving:
             self._parked_since = None
             if not stale:
-                self._add_point(st)
+                self._add_point(st, now)
                 self._last_moving_ts = frame_time
             else:
                 self._last_moving_ts = max(self._last_moving_ts, frame_time)
@@ -568,16 +568,18 @@ class TripRecorder:
         log.info("行程开始(%s @ %s, SOC %s%%)", self._active.id,
                  self._dt(frame_time), self._active.start_soc)
 
-    def _add_point(self, st) -> None:
+    def _add_point(self, st, now: float | None = None) -> None:
         lat, lon = st.latitude_wgs, st.longitude_wgs
         if lat is None or lon is None or (lat == 0 and lon == 0):
             return                                        # 没有定位/占位 (0,0) 不写
         if self._points and self._points[-1][0] == lat and self._points[-1][1] == lon:
             return                                        # 与上一点完全相同(堵车/静止)不重复写
-        # 带上实时车速(km/h) → 卡片的速度热力图按它给轨迹着色。旧存储里的点是 [lat, lon]
-        # 两元组(没有 speed), 卡片会据此回落到单色, 不受影响。
+        # 带上实时车速(km/h) → 卡片的速度热力图按它给轨迹着色; 再带上采样时刻(epoch 秒) →
+        # 卡片点选轨迹点时能显示"这个点是什么时候采的"。旧存储里的点是 [lat, lon] 或
+        # [lat, lon, speed], 卡片按长度兼容, 不受影响。
         speed = round(float(st.get("speed") or 0.0), 1)
-        self._points.append([round(lat, 6), round(lon, 6), speed])
+        ts = round(float(now), 1) if now else None
+        self._points.append([round(lat, 6), round(lon, 6), speed, ts])
         if len(self._points) > MAX_TRACK_POINTS:
             self._points = downsample(self._points, MAX_TRACK_POINTS)
 

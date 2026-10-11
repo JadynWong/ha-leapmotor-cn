@@ -34,7 +34,8 @@ from .api import (
     Vehicle,
 )
 from .const import (
-    CONF_BATTERY_KWH,
+
+    CHARGE_LIMIT_HOLD_SECONDS,    CONF_BATTERY_KWH,
     CAR_PICTURE_REFRESH_SECONDS,
     CAR_PICTURE_RETRY_SECONDS,
     CONF_LAUNCH_BOOST,
@@ -125,6 +126,8 @@ class LeapmotorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         #      传感器在重启后有一段时间是 unknown —— 用户反馈的"重启后实体未知")。
         self._config: dict = {}
         self._charge_plan: dict = {}
+        # 充电上限"命令后本地顶住云端旧值"的窗口: (percent, 到期时刻) 或 None
+        self._charge_limit_hold: tuple[int, float] | None = None
         self._mileage: dict = {}
         self._energy: dict = {}
         self._heavy_store = None                 # 懒建 Store(见 async_load_heavy)
@@ -603,7 +606,7 @@ class LeapmotorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "vehicle": self.vehicle,
             "config": getattr(self, "_config", {}) or {},
-            "charge_plan": getattr(self, "_charge_plan", {}) or {},
+            "charge_plan": self._effective_charge_plan(),
             "mileage": getattr(self, "_mileage", {}) or {},
             "energy": getattr(self, "_energy", {}) or {},
             "plug_energy": getattr(self, "_plug_energy", {}) or {},
@@ -956,10 +959,45 @@ class LeapmotorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return out
 
     def set_charge_plan_cache(self, key: str, value) -> None:
-        """本地先记下刚写成功的值, 让界面立刻反映(下次轮询会用车端真实值覆盖)。"""
+        """本地先记下刚写成功的值, 让界面立刻反映。
+
+        对 `percent`(充电上限)额外开一个 HOLD 窗口: 车端写库有延迟, 紧接着的重数据刷新
+        会拿回**旧值**, 表现为"点完立刻弹回"。窗口内由 `_effective_charge_plan` 顶住本地值,
+        云端一旦报出同一个值就立刻解除(见 `_effective_charge_plan`)。
+        """
+        if key == "percent":
+            try:
+                self._charge_limit_hold = (
+                    int(float(value)), time.time() + CHARGE_LIMIT_HOLD_SECONDS)
+            except (TypeError, ValueError):
+                pass
         plan = dict((self.data or {}).get("charge_plan") or {})
         plan[key] = value
         self.async_set_updated_data({**(self.data or {}), "charge_plan": plan})
+
+    def _effective_charge_plan(self) -> dict:
+        """对外(实体/卡片)看到的充电计划。
+
+        充电上限命令后的一小段时间内(HOLD 窗口), 用本地值顶住云端可能还没写库的旧值;
+        云端的 percent 与我们记录的一致(说明车端已生效)或窗口超时, 就自动让位给云端值。
+        """
+        plan = dict(getattr(self, "_charge_plan", {}) or {})
+        hold = self._charge_limit_hold
+        if hold is None:
+            return plan
+        value, until = hold
+        if time.time() >= until:
+            self._charge_limit_hold = None
+            return plan
+        cur = plan.get("percent")
+        try:
+            if cur is not None and int(float(cur)) == int(value):
+                self._charge_limit_hold = None      # 车端已生效 → 以后以云端为准
+                return plan
+        except (TypeError, ValueError):
+            pass
+        plan["percent"] = value
+        return plan
 
     def _persist(self) -> None:
         """把刷新后的会话写回 config entry(HA 会持久化)。"""

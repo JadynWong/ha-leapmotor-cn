@@ -35,13 +35,14 @@
  * 颜色全部走 HA 主题变量(深色主题自适应)。
  */
 
-const CARD_VERSION = "1.3.1";
+const CARD_VERSION = "1.3.5";
 
 const PENDING_RETRY_MS = 8000;   // pending>0 时自动续拉前的等待(分批取数, 不阻塞首屏)
 
 const COLOR_KM = "#1e88e5";      // 蓝 = 里程(km)
 const COLOR_KWH = "#fb8c00";     // 橙 = 耗电(每日 kWh)
 const COLOR_EFF = "#43a047";     // 绿 = 百公里能耗(kWh/100km)
+const COLOR_FUEL = "#795548";    // 棕 = 油耗(L/100km; 仅增程车, 且云端给逐日数据时才显示)
 const CHART_H = 176;             // 图表高度(CSS px); 宽度自适应卡片
 const PAD = { l: 34, r: 40, t: 12, b: 22 };
 const REFRESH_THROTTLE_MS = 60000;   // 传感器联动刷新(「近7天里程」更新后)的最小间隔
@@ -103,6 +104,17 @@ function runsOf(values) {
   return runs;
 }
 
+/* ── IconPark 图标(内联 SVG; 选自 IconPark, 48×48 描边风格) ─────────────
+ * 颜色走 currentColor(跟随文字/主题色), 线宽统一 4/48 → 视觉与 ha-icon 一致。
+ * 用 ipIcon(name, size) 取用; 未收录的语义继续用 ha-icon 的 mdi。 */
+const IP = {"redo":"<path d=\"M36.7279 36.7279C33.4706 39.9853 28.9706 42 24 42C14.0589 42 6 33.9411 6 24C6 14.0589 14.0589 6 24 6C28.9706 6 33.4706 8.01472 36.7279 11.2721C38.3859 12.9301 42 17 42 17\" /><path d=\"M42 8V17H33\" />","line":"<path d=\"M6 6V42H42\" /><path d=\"M14 34L22 18L32 27L42 6\" />","histogram":"<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M4 42H44H4Z\" /><path d=\"M4 42H44\" /><rect x=\"8\" y=\"28\" width=\"6\" height=\"14\" /><rect x=\"21\" y=\"18\" width=\"6\" height=\"24\" /><rect x=\"34\" y=\"6\" width=\"6\" height=\"36\" />"};
+function ipIcon(name, size) {
+  const s = size || 18;
+  return '<svg class="ip" viewBox="0 0 48 48" width="' + s + '" height="' + s +
+    '" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"' +
+    ' stroke-linejoin="round">' + (IP[name] || "") + "</svg>";
+}
+
 class LeapmotorEnergyCard extends HTMLElement {
   constructor() {
     super();
@@ -114,6 +126,7 @@ class LeapmotorEnergyCard extends HTMLElement {
     this._showKm = true;
     this._showKwh = true;
     this._showEff = true;                 // 百公里能耗(默认开, 可关)
+    this._showFuel = true;                // 油耗(增程车; 云端没有逐日数据时该系列不出现)
     this._cache = {};                     // range → 数据(切回时不重拉)
     this._loading = false;
     this._err = "";
@@ -175,6 +188,7 @@ class LeapmotorEnergyCard extends HTMLElement {
       if (this._config.show_mileage !== false && typeof p.km === "boolean") this._showKm = p.km;
       if (this._config.show_energy !== false && typeof p.kwh === "boolean") this._showKwh = p.kwh;
       if (this._config.show_efficiency !== false && typeof p.eff === "boolean") this._showEff = p.eff;
+      if (typeof p.fuel === "boolean") this._showFuel = p.fuel;
       if (!this._showKm && !this._showKwh && !this._showEff) this._showKm = true;
     } catch (err) { /* 本地存储不可用就算了 */ }
   }
@@ -197,7 +211,7 @@ class LeapmotorEnergyCard extends HTMLElement {
       '<div class="card">' +
       '<div class="head"><span class="title"></span><span class="sum"></span>' +
       '<span class="spacer"></span>' +
-      '<button class="refresh" title="重新读取"><ha-icon icon="mdi:refresh"></ha-icon></button>' +
+      '<button class="refresh" title="重新读取">' + ipIcon("redo", 16) + '</button>' +
       "</div>" +
       '<div class="lmsg"></div>' +
       '<section class="chartSec"><div class="chartBox"></div>' +
@@ -240,6 +254,10 @@ class LeapmotorEnergyCard extends HTMLElement {
         this._showKwh = next;
         this._day = -1;
         this._savePref({ kwh: next }); this._renderAll();
+      } else if (act === "toggle-fuel") {
+        this._showFuel = !this._showFuel;
+        this._day = -1;
+        this._savePref({ fuel: this._showFuel }); this._renderAll();
       } else if (act === "toggle-eff") {
         const next = !this._showEff;
         if (!next && !this._showKm && !this._showKwh) return;
@@ -367,10 +385,12 @@ class LeapmotorEnergyCard extends HTMLElement {
       .chip.km.on { background: ${COLOR_KM}; color: #fff; border-color: transparent; }
       .chip.kwh.on { background: ${COLOR_KWH}; color: #fff; border-color: transparent; }
       .chip.eff.on { background: ${COLOR_EFF}; color: #fff; border-color: transparent; }
+      .chip.fuel.on { background: ${COLOR_FUEL}; color: #fff; border-color: transparent; }
       .chip.rng.on {
         background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff);
         border-color: transparent;
       }
+      .ip { display: inline-block; vertical-align: middle; flex: none; margin-right: 4px; }
       .chip.chart.on {
         background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff);
         border-color: transparent;
@@ -445,7 +465,7 @@ class LeapmotorEnergyCard extends HTMLElement {
     const unknown = code === "unknown_command" || code === "no_callws"
       || /unknown command/i.test(String((err && err.message) || ""));
     if (range === "month") {
-      this._err = unknown ? "月视图需要 beta 版集成(升级后重试)" : "读取失败: " + this._errText(err);
+      this._err = unknown ? "" : "读取失败: " + this._errText(err);
       return null;
     }
     const st = this._sensorState();
@@ -468,7 +488,7 @@ class LeapmotorEnergyCard extends HTMLElement {
         return { source: "sensor", days: days, summary: { km: Math.round(km * 10) / 10, kwh: Math.round(kwh * 100) / 100 } };
       }
     }
-    this._err = unknown ? "需要 beta 版集成(里程能耗命令未注册)" : "读取失败: " + this._errText(err);
+    this._err = unknown ? "" : "读取失败: " + this._errText(err);
     return null;
   }
 
@@ -522,6 +542,12 @@ class LeapmotorEnergyCard extends HTMLElement {
     this._renderChart();
   }
 
+  /** 这几天里有没有"逐日油耗"(云端增程车型才可能给; 没有就不显示油耗胶囊/折线)。 */
+  _hasFuel(d) {
+    if (!d || !Array.isArray(d.days)) return false;
+    return d.days.some((x) => x && x.fuel != null && Number.isFinite(Number(x.fuel)));
+  }
+
   _renderHead() {
     const d = this._data;
     if (this._sumEl) {
@@ -563,16 +589,21 @@ class LeapmotorEnergyCard extends HTMLElement {
       '<button class="chip rng' + (on ? " on" : "") + '" data-act="' + act + '"' +
       (val ? ' data-val="' + val + '"' : "") + (title ? ' title="' + esc(title) + '"' : "") +
       ">" + esc(label) + "</button>";
+    const fuelChip = this._hasFuel(this._data)
+      ? ser("toggle-fuel", this._showFuel, "fuel", "油耗", "显示/隐藏每日油耗折线(L/100km; 增程车)")
+      : "";
     this._ctrlsEl.innerHTML =
       ser("toggle-km", this._showKm, "km", "里程", "显示/隐藏每日里程折线(km)") +
       ser("toggle-kwh", this._showKwh, "kwh", "耗电", "显示/隐藏每日耗电折线(kWh)") +
       ser("toggle-eff", this._showEff, "eff", "百公里能耗",
           "显示/隐藏百公里能耗折线(kWh/100km, 按本机自记行程计)") +
+      fuelChip +
       '<span class="sp"></span>' +
       rng("range", this._range === "week", "周", "近 7 天", "week") +
       rng("range", this._range === "month", "月", "近 30 天(官方 + 自记)", "month") +
       '<button class="chip chart' + (this._chart === "bar" ? " on" : "") +
       '" data-act="chart" title="切换图表: 折线 / 柱状">' +
+      ipIcon(this._chart === "bar" ? "histogram" : "line", 16) +
       (this._chart === "bar" ? "柱状" : "折线") + "</button>";
   }
 
@@ -596,6 +627,7 @@ class LeapmotorEnergyCard extends HTMLElement {
     const kmVals = days.map((x) => (x.km == null ? null : Number(x.km)));
     const kwhVals = days.map((x) => (x.kwh == null ? null : Number(x.kwh)));
     const effVals = days.map((x) => (x.eff == null ? null : Number(x.eff)));
+    const fuelVals = days.map((x) => (x.fuel == null ? null : Number(x.fuel)));
     // 三条可切换的线。每条的 y 轴刻度 = 自己的 nice ticks(量纲不同, 不能共用一根轴)。
     const all = [
       { key: "km", vals: kmVals, color: COLOR_KM, on: this._showKm,
@@ -604,6 +636,9 @@ class LeapmotorEnergyCard extends HTMLElement {
         tipFmt: (v) => "耗电 " + fmtKwh(v) + " kWh" },
       { key: "eff", vals: effVals, color: COLOR_EFF, on: this._showEff,
         tipFmt: (v) => "百公里能耗 " + fmtEff(v) + " kWh/100km" },
+      // 油耗只在"云端真的给了逐日数据"时才作为一个系列出现(目前接口只给均值, 故通常没有)
+      { key: "fuel", vals: fuelVals, color: COLOR_FUEL, on: this._showFuel,
+        tipFmt: (v) => "油耗 " + fmtEff(v) + " L/100km" },
     ];
     const live = all.filter((x) => x.on && x.vals.some((v) => v != null));
     if (!live.length) {                            // 一条可画的线都没有 → 不画空轴

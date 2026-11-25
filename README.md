@@ -50,6 +50,14 @@
 
 T03 车况读取提供[尝试性兼容与验证说明](docs/T03-COMPATIBILITY.md)，仍需中国版车主验证；其它车型继续使用原有车况链路。
 
+### iOS 车况 App
+
+仓库内的 SwiftUI App（iOS 16+）可以通过 Home Assistant 只读查看多台零跑车辆的电量、续航、充电状态和 HA 实体最后更新时间。打开 App、下拉或点击刷新会读取 HA 当前状态，不会触发零跑云端轮询。
+
+推送 `ios-leapmotor-ha` 分支上的 iOS 改动会触发 GitHub Actions 的 **iOS unsigned IPA** 工作流。下载 `LeapmotorHA-unsigned` artifact 并解压外层 ZIP。先用 SideStore 安装 LiveContainer，再把里面的 `LeapmotorHA-unsigned.ipa` 导入 LiveContainer；不要把零跑 IPA 单独装到 SideStore。CI 不需要 Apple 签名证书。
+
+在 App 中填入可从 iPhone 访问的 Home Assistant **HTTPS 根地址**和 HA 账号个人资料里创建的长期访问令牌。地址需要有效且受 iOS 信任的证书；不支持明文 HTTP。令牌只保存在设备钥匙串。当前版本不含车控、行程同步或后台刷新。
+
 ## 安全接入建议
 
 建议使用单独的零跑子账号接入。零跑云同一账号通常只允许一个活跃登录，而集成需要持续轮询；使用主账号可能影响官方 App 的登录状态。

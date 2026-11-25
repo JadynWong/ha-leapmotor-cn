@@ -1,0 +1,48 @@
+name: iOS unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-leapmotor-ha]
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        working-directory: ios
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+      - name: Build unsigned arm64 app
+        working-directory: ios
+        run: |
+          xcodebuild -project LeapmotorHA.xcodeproj -scheme LeapmotorHA \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/leapmotor-build" ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Package and verify IPA
+        run: |
+          cd "$RUNNER_TEMP"
+          app=Payload/LeapmotorHA.app
+          mkdir -p Payload
+          ditto leapmotor-build/Build/Products/Release-iphoneos/LeapmotorHA.app "$app"
+          test "$(lipo -archs "$app/LeapmotorHA")" = arm64
+          test ! -e "$app/_CodeSignature"
+          test ! -e "$app/embedded.mobileprovision"
+          ditto -c -k --keepParent Payload LeapmotorHA-unsigned.ipa
+          unzip -tq LeapmotorHA-unsigned.ipa
+          unzip -Z1 LeapmotorHA-unsigned.ipa 'Payload/LeapmotorHA.app/LeapmotorHA'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LeapmotorHA-unsigned
+          path: ${{ runner.temp }}/LeapmotorHA-unsigned.ipa
+          if-no-files-found: error
